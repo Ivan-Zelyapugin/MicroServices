@@ -1,0 +1,62 @@
+# Visual Studio 2022 and general build artifacts
+bin/
+obj/
+*.suo
+*.user
+*.sln.docstates
+*.csproj.user
+*.vcxproj.user
+*.pdb
+*.exe
+*.dll
+*.lib
+*.exp
+*.ilk
+*.iobj
+*.ipdb
+*.tlog
+*.log
+*.cache
+*.bak
+*.tmp
+*.temp
+*.swp
+
+# Visual Studio cache and temporary files
+.vs/
+[Tt]emp/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]uild/
+[Oo]ut/
+[Pp]ackages/
+
+# NuGet packages
+*.nupkg
+packages/
+*.nuget.props
+*.nuget.targets
+
+# Visual Studio Code and other IDEs
+.vscode/
+.idea/
+
+# OS-specific files
+Thumbs.db
+.DS_Store
+
+# Other common ignores
+*.zip
+*.rar
+*.7z
+*.tar.gz
+node_modules/
+dist/
+build/
+
+# Add custom ignores if needed
+# For example, specific to your project
+*.bak
+*.backup

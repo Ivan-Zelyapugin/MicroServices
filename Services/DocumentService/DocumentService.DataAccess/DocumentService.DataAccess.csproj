@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Migrations\Resources\001_Create_users.sql" />
+    <None Remove="Migrations\Resources\002_Create_document.sql" />
+    <None Remove="Migrations\Resources\003_Create_document_participants.sql" />
+    <None Remove="Migrations\Resources\004_Create_block.sql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\Resources\001_Create_users.sql" />
+    <EmbeddedResource Include="Migrations\Resources\002_Create_document.sql" />
+    <EmbeddedResource Include="Migrations\Resources\003_Create_document_participants.sql" />
+    <EmbeddedResource Include="Migrations\Resources\004_Create_block.sql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.1.66" />
+    <PackageReference Include="dbup" Version="5.0.41" />
+    <PackageReference Include="dbup-postgresql" Version="6.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DocumentService.Models\DocumentService.Models.csproj" />
+  </ItemGroup>
+
+</Project>
