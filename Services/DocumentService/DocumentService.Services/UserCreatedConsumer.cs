@@ -55,6 +55,8 @@ namespace DocumentService.Services
                     {
                         try
                         {
+                            Console.WriteLine("Id = " + evt.Id);
+                            Console.WriteLine("Email = " + evt.Email);
                             using var scope = _scopeFactory.CreateScope();
                             var userRepository = scope.ServiceProvider.GetRequiredService<IUserRepository>();
 

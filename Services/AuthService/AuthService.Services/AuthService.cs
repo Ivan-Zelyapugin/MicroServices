@@ -141,7 +141,7 @@ namespace AuthService.Services
 
             var userCreatedEvent = new UserCreatedEvent
             {
-                UserId = user.Id,
+                Id = user.Id,
                 Email = user.Email
             };
 
