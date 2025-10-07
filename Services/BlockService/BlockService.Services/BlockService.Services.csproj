@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.9" />
+    <PackageReference Include="Minio" Version="6.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BlockService.Common\BlockService.Common.csproj" />
+    <ProjectReference Include="..\BlockService.DataAccess\BlockService.DataAccess.csproj" />
+    <ProjectReference Include="..\BlockService.Models\BlockService.Models.csproj" />
+  </ItemGroup>
+
+</Project>

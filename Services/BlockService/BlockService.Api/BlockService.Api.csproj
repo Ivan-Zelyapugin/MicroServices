@@ -4,21 +4,18 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>831b591e-0be2-4ea7-bf7e-bf08ddc5013f</UserSecretsId>
+    <UserSecretsId>e67e48ad-a483-4df1-a31c-689a60112d78</UserSecretsId>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.22.1" />
-    <PackageReference Include="prometheus-net" Version="8.2.1" />
-    <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.4" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.6" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DocumentService.Common\DocumentService.Common.csproj" />
-    <ProjectReference Include="..\DocumentService.Services\DocumentService.Services.csproj" />
+    <ProjectReference Include="..\BlockService.Services\BlockService.Services.csproj" />
   </ItemGroup>
 
 </Project>

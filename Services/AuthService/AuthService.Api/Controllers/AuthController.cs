@@ -27,10 +27,11 @@ namespace AuthService.Api.Controllers
             return Ok(authResponse);
         }
 
-        [HttpPut("refresh-token/{token}")]
-        public async Task<IActionResult> RefreshToken(string token)
+        [HttpPut("refresh-token")]
+        public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
         {
-            return Ok(await tokenService.RefreshToken(token));
+            Console.WriteLine("refresh-token = " + request);
+            return Ok(await tokenService.RefreshToken(request.RefreshToken));
         }
 
         [HttpPost("confirm-email")]

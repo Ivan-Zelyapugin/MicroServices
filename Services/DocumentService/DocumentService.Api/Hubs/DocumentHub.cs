@@ -1,8 +1,10 @@
-﻿using DocumentService.DataAccess.Models;
+﻿using DocumentService.Api.HubMetrics; // подключаем наши метрики
+using DocumentService.DataAccess.Models;
 using DocumentService.DataAccess.Repositories.Interfaces;
 using DocumentService.Models.Document;
 using DocumentService.Services.Interfaces;
 using Microsoft.AspNetCore.SignalR;
+using Prometheus;
 
 namespace DocumentService.Api.Hubs
 {
@@ -15,68 +17,79 @@ namespace DocumentService.Api.Hubs
     {
         public async Task CreateDocument(CreateDocumentRequest request)
         {
-            try
+            using (DocumentHubMetrics.CreateDocumentDuration.NewTimer())
             {
-                request.CreatorId = Id;
+                try
+                {
+                    request.CreatorId = Id;
 
-                Console.WriteLine("CreatorId - " + request.CreatorId);
+                    var users = request.Email != null && request.Email.Any()
+                        ? await userRepository.GetUsersByEmailsAsync(request.Email)
+                        : new List<DbUser>();
 
-                var users = request.Email != null && request.Email.Any()
-                    ? await userRepository.GetUsersByEmailsAsync(request.Email)
-                    : new List<DbUser>();
+                    request.UserIds = users?.Select(u => u.Id).ToList() ?? new List<int>();
 
-                Console.WriteLine("users - " + users);
+                    var document = await documentService.CreateDocument(request);
 
-                request.UserIds = users?.Select(u => u.Id).ToList() ?? new List<int>();
+                    var connectionIds = connectionTracker
+                        .SelectConnectionIds(request.UserIds)
+                        .Append(Context.ConnectionId);
 
-                Console.WriteLine("request.UserIds - " + request.UserIds);
+                    await Task.WhenAll(connectionIds.Select(connectionId =>
+                        Groups.AddToGroupAsync(connectionId, $"Document{document.Id}")));
 
-                var document = await documentService.CreateDocument(request);
+                    await Clients.Caller.SendAsync("DocumentCreated", document);
+                    await Clients.Group($"Document{document.Id}")
+                        .SendAsync("AddedToDocument", request.UserIds);
 
-                Console.WriteLine("document - " + document);
-
-                var connectionIds = connectionTracker.SelectConnectionIds(request.UserIds).Append(Context.ConnectionId);
-
-                Console.WriteLine("connectionIds - " + connectionIds);
-
-                await Task.WhenAll(connectionIds.Select(connectionId => Groups.AddToGroupAsync(connectionId, $"Document{document.Id}")));
-
-                await Clients.Caller.SendAsync("DocumentCreated", document);
-                await Clients.Group($"Document{document.Id}").SendAsync("AddedToDocument", request.UserIds);
-            }
-            catch (Exception e)
-            {
-                throw new HubException(e.Message);
+                    DocumentHubMetrics.DocumentsCreated.Inc(); // счётчик
+                }
+                catch (Exception e)
+                {
+                    throw new HubException(e.Message);
+                }
             }
         }
 
         public async Task DeleteDocument(int documentId)
         {
-            try
+            using (DocumentHubMetrics.DeleteDocumentDuration.NewTimer())
             {
-                await documentService.DeleteDocument(documentId, Id);
-                await Clients.Group($"Document{documentId}").SendAsync("DocumentDeleted", documentId);
+                try
+                {
+                    await documentService.DeleteDocument(documentId, Id);
+                    await Clients.Group($"Document{documentId}").SendAsync("DocumentDeleted", documentId);
 
-                var connectionIds = connectionTracker.SelectConnectionIds(new List<int> { Id });
-                await Task.WhenAll(connectionIds.Select(connectionId => Groups.RemoveFromGroupAsync(connectionId, $"Document{documentId}")));
-            }
-            catch (Exception e)
-            {
-                throw new HubException(e.Message);
+                    var connectionIds = connectionTracker.SelectConnectionIds(new List<int> { Id });
+                    await Task.WhenAll(connectionIds.Select(connectionId =>
+                        Groups.RemoveFromGroupAsync(connectionId, $"Document{documentId}")));
+
+                    DocumentHubMetrics.DocumentsDeleted.Inc();
+                }
+                catch (Exception e)
+                {
+                    throw new HubException(e.Message);
+                }
             }
         }
 
         public async Task RenameDocument(int documentId, string newName)
         {
-            try
+            using (DocumentHubMetrics.RenameDocumentDuration.NewTimer())
             {
-                await documentService.RenameDocument(documentId, newName, Id);
+                try
+                {
+                    await documentService.RenameDocument(documentId, newName, Id);
 
-                await Clients.Group($"Document{documentId}").SendAsync("DocumentRenamed", documentId, newName);
-            }
-            catch (Exception e)
-            {
-                throw new HubException(e.Message);
+                    await Clients.Group($"Document{documentId}")
+                        .SendAsync("DocumentRenamed", documentId, newName);
+
+                    DocumentHubMetrics.DocumentsRenamed.Inc();
+                }
+                catch (Exception e)
+                {
+                    throw new HubException(e.Message);
+                }
             }
         }
 
@@ -84,9 +97,12 @@ namespace DocumentService.Api.Hubs
         {
             connectionTracker.TrackConnection(Context.ConnectionId, Id);
 
+            DocumentHubMetrics.ActiveConnections.Inc(); // добавляем соединение
+
             var documentParticipants = await documentParticipantService.GetDocumentParticipantsByUserId(Id);
             var documentIds = documentParticipants.Select(x => x.DocumentId);
-            await Task.WhenAll(documentIds.Select(documentId => Groups.AddToGroupAsync(Context.ConnectionId, $"Document{documentId}")));
+            await Task.WhenAll(documentIds.Select(documentId =>
+                Groups.AddToGroupAsync(Context.ConnectionId, $"Document{documentId}")));
 
             await base.OnConnectedAsync();
         }
@@ -94,6 +110,8 @@ namespace DocumentService.Api.Hubs
         public override async Task OnDisconnectedAsync(Exception exception)
         {
             connectionTracker.UntrackConnection(Context.ConnectionId);
+
+            DocumentHubMetrics.ActiveConnections.Dec(); // убираем соединение
 
             await base.OnDisconnectedAsync(exception);
         }

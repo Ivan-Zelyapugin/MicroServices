@@ -3,7 +3,6 @@ using DocumentService.Api.Hubs;
 using DocumentService.DataAccess.Extensions;
 using DocumentService.Services;
 using DocumentService.Services.Extensions;
-using Microsoft.Extensions.Options;
 using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
