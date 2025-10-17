@@ -6,6 +6,6 @@ namespace DocumentService.DataAccess.Repositories.Interfaces
     {
         Task<bool> IsUserExistsById(int id);
         Task<int> CreateUser(DbUser user);
-        Task<List<DbUser>> GetUsersByEmailsAsync(IEnumerable<string> emails);
+        Task<List<DbUser>> GetUsersByUsernamesAsync(IEnumerable<string> usernames);
     }
 }

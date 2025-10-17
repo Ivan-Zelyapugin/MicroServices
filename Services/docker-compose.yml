@@ -1,25 +1,15 @@
 services:
   db:
     image: postgres:15
-    container_name: auth_postgres
+    container_name: postgres_db
     environment:
-      POSTGRES_DB: authdb
+      POSTGRES_DB: collabodb
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
-    networks:
-      - app-network_2
-
-  documentdb:
-    image: postgres:15
-    container_name: document_postgres
-    environment:
-      POSTGRES_DB: documentdb
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin
-    ports:
-      - "5433:5432"
     networks:
       - app-network_2
 
@@ -104,12 +94,41 @@ services:
       ASPNETCORE_URLS: http://+:80
       ASPNETCORE_ENVIRONMENT: Development
     depends_on:
-      - documentdb
-      - kafka
+      - db
     ports:
       - "5002:80"
     networks:
       - app-network_2
+
+  blockservice:
+    image: blockservice
+    container_name: block_service
+    build:
+      context: ./BlockService
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_URLS: http://+:80
+      ASPNETCORE_ENVIRONMENT: Development
+    depends_on:
+      - db
+    ports:
+      - "5003:80"
+    networks:
+      - app-network_2
+
+  database:
+    container_name: database_migrator
+    build:
+      context: ./Database
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+    depends_on:
+      - db
+    networks:
+      - app-network_2
+    restart: "no"
+
       
   nginx:
     image: nginx:1.25
@@ -150,3 +169,7 @@ services:
 networks:
   app-network_2:
     driver: bridge
+
+volumes:
+  postgres-data:
+  minio_data:

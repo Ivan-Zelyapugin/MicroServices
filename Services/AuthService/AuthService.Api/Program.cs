@@ -16,7 +16,6 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwagger();
 builder.Services.AddControllers();
 
-builder.Services.MigrateDatabase(builder.Configuration);
 builder.Services.AddDapper();
 builder.Services.AddSingleton<IAuthSettings, AuthSettings>();
 builder.Services.AddRepositories();

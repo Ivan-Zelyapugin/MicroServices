@@ -21,7 +21,7 @@ namespace DocumentService.Api.Hubs
                 {
                     request.RequestingUserId = Id;
 
-                    var users = await userRepository.GetUsersByEmailsAsync(request.Email);
+                    var users = await userRepository.GetUsersByUsernamesAsync(request.Usernames);
                     if (users == null || !users.Any())
                     {
                         throw new HubException("Не удалось найти пользователей по указанным email");

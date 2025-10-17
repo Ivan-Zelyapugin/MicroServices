@@ -1,3 +1,3 @@
-select id, email
+select id, username
     from users
-    where email = any(@Emails)";
+    where username = any(@Usernames);

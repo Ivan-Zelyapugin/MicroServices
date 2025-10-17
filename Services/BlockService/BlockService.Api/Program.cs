@@ -13,7 +13,6 @@ builder.Services.AddSignalR(options =>
     options.MaximumReceiveMessageSize = 10 * 1024 * 1024;
 });
 
-builder.Services.MigrateDatabase(builder.Configuration);
 builder.Services.AddDapper();
 builder.Services.AddRepositories();
 builder.Services.AddServices();

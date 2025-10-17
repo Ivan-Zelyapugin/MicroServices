@@ -1,9 +1,10 @@
-using DocumentService.Api.Extensions;
+﻿using DocumentService.Api.Extensions;
+using DocumentService.Api.GraphQL;
 using DocumentService.Api.Hubs;
 using DocumentService.DataAccess.Extensions;
-using DocumentService.Services;
 using DocumentService.Services.Extensions;
 using Prometheus;
+using HotChocolate.AspNetCore.Voyager;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,7 +13,6 @@ builder.Services.AddSwaggerWithAuth();
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 
-builder.Services.MigrateDatabase(builder.Configuration);
 builder.Services.AddDapper();
 builder.Services.AddRepositories();
 builder.Services.AddServices();
@@ -29,7 +29,11 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddHostedService<KafkaUserConsumer>();
+builder.Services
+    .AddGraphQLServer()
+    .AddQueryType<Query>()
+    .AddMutationType<Mutation>()
+    .ModifyRequestOptions(opt => opt.IncludeExceptionDetails = true);
 
 var app = builder.Build();
 
@@ -46,8 +50,11 @@ app.UseSwaggerUI(options =>
 });
 
 app.UseAuthorization();
+
 app.MapControllers();
 app.MapHub<DocumentHub>("/documenthub");
 app.MapHub<ParticipantHub>("/participanthub");
+
+app.MapGraphQL("/graphql");
 
 app.Run();

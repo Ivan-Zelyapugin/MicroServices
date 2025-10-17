@@ -30,8 +30,14 @@ export const DocumentList: React.FC<DocumentListProps> = ({ onLogout }) => {
   const [showEditModal, setShowEditModal] = useState<number | null>(null);
   const [editDocumentInfo, setEditDocumentInfo] = useState<DocumentDetails | null>(null);
   const [tempUserRoles, setTempUserRoles] = useState<{ [userId: number]: DocumentRole }>({});
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   useEffect(() => {
+    const token = localStorage.getItem('access_token'); 
+    if (token) {
+    const id = getUserIdFromToken(token);
+    setCurrentUserId(id);
+  }
     startDocumentHub();
     startParticipantHub();
     fetchDocuments();
@@ -49,27 +55,42 @@ export const DocumentList: React.FC<DocumentListProps> = ({ onLogout }) => {
     });
 
     participantHub.connection.on('UserRoleChanged', (documentId: number, userId: number, newRole: string) => {
-      console.log('UserRoleChanged received:', { documentId, userId, newRole });
-      if (showEditModal === documentId && editDocumentInfo) {
-        setEditDocumentInfo(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            users: prev.users.map(user =>
-              user.userId === userId ? { ...user, role: newRole as DocumentRole } : user
-            ),
-          };
-        });
-      }
+  console.log('UserRoleChanged received:', { documentId, userId, newRole });
+
+  setDocuments(prev =>
+    prev.map(d => 
+      d.document.id === documentId ? { ...d, role: d.document.id === userId ? newRole as DocumentRole : d.role } : d
+    )
+  );
+
+  if (editDocumentInfo?.id === documentId) {
+    setEditDocumentInfo(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        users: prev.users.map(user =>
+          user.userId === userId ? { ...user, role: newRole as DocumentRole } : user
+        ),
+      };
     });
+  }
+});
+
 
     participantHub.connection.on('UserRemoved', (documentId: number, userId: number) => {
-      console.log('UserRemoved received:', { documentId, userId });
-      setEditDocumentInfo(prev =>
-        prev ? { ...prev, users: prev.users.filter(u => u.userId !== userId) } : prev
-      );
-      fetchDocumentInfo(documentId);
-    });
+  setEditDocumentInfo(prev =>
+    prev && prev.id === documentId
+      ? { ...prev, users: prev.users.filter(u => u.userId !== userId) }
+      : prev
+  );
+
+  if (userId === currentUserId) { 
+    setDocuments(prev => prev.filter(d => d.document.id !== documentId));
+  }
+
+});
+
+
 
     documentHub.connection.on('DocumentRenamed', (documentId: number, newName: string) => {
       if (showEditModal === documentId) {
@@ -100,6 +121,26 @@ export const DocumentList: React.FC<DocumentListProps> = ({ onLogout }) => {
       setLoading(false);
     }
   };
+
+  function getUserIdFromToken(token: string): number | null {
+  try {
+    // если токен приходит с "Bearer ", убираем префикс
+    if (token.startsWith("Bearer ")) {
+      token = token.slice(7);
+    }
+
+    // декодируем JWT payload
+    const payloadBase64 = token.split('.')[1];
+    const payloadJson = atob(payloadBase64);
+    const payload = JSON.parse(payloadJson);
+
+    // возвращаем userId, если есть
+    return payload['userId'] ? Number(payload['userId']) : null;
+  } catch (e) {
+    console.error("Ошибка при разборе токена:", e);
+    return null;
+  }
+}
 
   const fetchDocumentInfo = async (documentId: number) => {
     try {

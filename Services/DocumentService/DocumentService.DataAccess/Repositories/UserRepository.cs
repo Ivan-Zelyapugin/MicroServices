@@ -18,10 +18,10 @@ namespace DocumentService.DataAccess.Repositories
             return await dapperContext.CommandWithResponse<int>(new QueryObject(Sql.CreateUser, user));
         }
 
-        public async Task<List<DbUser>> GetUsersByEmailsAsync(IEnumerable<string> emails)
+        public async Task<List<DbUser>> GetUsersByUsernamesAsync(IEnumerable<string> usernames)
         {
             return await dapperContext.ListOrEmpty<DbUser>(
-                new QueryObject(Sql.GetUsersByEmails, new { Emails = emails.ToArray() })
+                new QueryObject(Sql.GetUsersByEmails, new { Usernames = usernames.ToArray() })
             );
         }
     }

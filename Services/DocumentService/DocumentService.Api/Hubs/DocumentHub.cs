@@ -23,8 +23,8 @@ namespace DocumentService.Api.Hubs
                 {
                     request.CreatorId = Id;
 
-                    var users = request.Email != null && request.Email.Any()
-                        ? await userRepository.GetUsersByEmailsAsync(request.Email)
+                    var users = request.Usernames != null && request.Usernames.Any()
+                        ? await userRepository.GetUsersByUsernamesAsync(request.Usernames)
                         : new List<DbUser>();
 
                     request.UserIds = users?.Select(u => u.Id).ToList() ?? new List<int>();
@@ -42,7 +42,7 @@ namespace DocumentService.Api.Hubs
                     await Clients.Group($"Document{document.Id}")
                         .SendAsync("AddedToDocument", request.UserIds);
 
-                    DocumentHubMetrics.DocumentsCreated.Inc(); // счётчик
+                    DocumentHubMetrics.DocumentsCreated.Inc(); 
                 }
                 catch (Exception e)
                 {
@@ -97,7 +97,7 @@ namespace DocumentService.Api.Hubs
         {
             connectionTracker.TrackConnection(Context.ConnectionId, Id);
 
-            DocumentHubMetrics.ActiveConnections.Inc(); // добавляем соединение
+            DocumentHubMetrics.ActiveConnections.Inc(); 
 
             var documentParticipants = await documentParticipantService.GetDocumentParticipantsByUserId(Id);
             var documentIds = documentParticipants.Select(x => x.DocumentId);
@@ -111,7 +111,7 @@ namespace DocumentService.Api.Hubs
         {
             connectionTracker.UntrackConnection(Context.ConnectionId);
 
-            DocumentHubMetrics.ActiveConnections.Dec(); // убираем соединение
+            DocumentHubMetrics.ActiveConnections.Dec(); 
 
             await base.OnDisconnectedAsync(exception);
         }

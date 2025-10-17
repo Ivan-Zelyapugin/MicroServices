@@ -6,7 +6,8 @@ create table if not exists users
     email                       text unique not null,
     password_hash               text,
     refresh_token               text,
-    refresh_token_expired_after timestamp
+    refresh_token_expired_after timestamp,
+    is_email_confirmed          bool default false
 );
 
 create index user_id_index on users (id);

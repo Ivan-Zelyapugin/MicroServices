@@ -1,7 +1,5 @@
 ﻿select u.id       as UserId,
        u.username as Username,
-       u.name     as Name,
-       u.surname  as Surname,
        cp.document_id as DocumentId,
        cp.role    as Role
 from document_participants cp
