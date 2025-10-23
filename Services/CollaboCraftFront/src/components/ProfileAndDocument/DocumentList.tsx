@@ -33,73 +33,93 @@ export const DocumentList: React.FC<DocumentListProps> = ({ onLogout }) => {
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem('access_token'); 
-    if (token) {
-    const id = getUserIdFromToken(token);
-    setCurrentUserId(id);
-  }
     startDocumentHub();
     startParticipantHub();
     fetchDocuments();
 
     documentHub.connection.on('DocumentCreated', (doc: Document) => {
-      setDocuments(prev => [...prev, { document: doc, role: 'Creator' }]);
+    setDocuments(prev => {
+      const exists = prev.some(d => d.document.id === doc.id);
+      if (exists) return prev;
+      return [...prev, { document: doc, role: 'Creator' }];
     });
+  });
 
     documentHub.connection.on('DocumentDeleted', (deletedId: number) => {
-      setDocuments(prev => prev.filter(d => d.document.id !== deletedId));
-    });
+    setDocuments(prev => prev.filter(d => d.document.id !== deletedId));
 
-    participantHub.connection.on('AddedToDocument', () => {
-      fetchDocuments();
-    });
+    // Если открыт документ в модалке — закрыть его
+    setEditDocumentInfo(prev => (prev?.id === deletedId ? null : prev));
+  });
+
+    participantHub.connection.on('AddedToDocument', async (userIds: number[], documentId?: number) => {
+    console.log('AddedToDocument received:', { userIds, documentId });
+    // Чтобы все участники видели обновления, просто перезапрашиваем актуальные данные
+    await fetchDocuments();
+
+    // Если открыт модал редактирования — обновим список участников
+    if (showEditModal && editDocumentInfo?.id === documentId) {
+      const updated = await getDocumentDetails(documentId!);
+      setEditDocumentInfo(updated);
+    }
+  });
 
     participantHub.connection.on('UserRoleChanged', (documentId: number, userId: number, newRole: string) => {
-  console.log('UserRoleChanged received:', { documentId, userId, newRole });
+    console.log('UserRoleChanged received:', { documentId, userId, newRole });
 
-  setDocuments(prev =>
-    prev.map(d => 
-      d.document.id === documentId ? { ...d, role: d.document.id === userId ? newRole as DocumentRole : d.role } : d
-    )
-  );
+    // Обновляем список документов (чтобы роли пересчитались, например, для текущего пользователя)
+    fetchDocuments();
 
-  if (editDocumentInfo?.id === documentId) {
+    // Если открыт документ — обновляем роли участников в деталях
     setEditDocumentInfo(prev => {
-      if (!prev) return prev;
+      if (!prev || prev.id !== documentId) return prev;
       return {
         ...prev,
-        users: prev.users.map(user =>
-          user.userId === userId ? { ...user, role: newRole as DocumentRole } : user
+        users: prev.users.map(u =>
+          u.userId === userId ? { ...u, role: newRole as DocumentRole } : u
         ),
       };
     });
-  }
-});
+  });
 
 
-    participantHub.connection.on('UserRemoved', (documentId: number, userId: number) => {
-  setEditDocumentInfo(prev =>
-    prev && prev.id === documentId
-      ? { ...prev, users: prev.users.filter(u => u.userId !== userId) }
-      : prev
-  );
+   participantHub.connection.on('UserRemoved', (documentId: number, userId: number) => {
+    console.log('UserRemoved received:', { documentId, userId });
 
-  if (userId === currentUserId) { 
-    setDocuments(prev => prev.filter(d => d.document.id !== documentId));
-  }
+    // Если удалили текущего пользователя — убрать документ из списка
+    if (userId === currentUserId) {
+      setDocuments(prev => prev.filter(d => d.document.id !== documentId));
+      if (showEditModal === documentId) setShowEditModal(null);
+      return;
+    }
 
-});
+    // Иначе просто обновляем детали документа (чтобы остальные видели изменение)
+    fetchDocuments();
+
+    setEditDocumentInfo(prev =>
+      prev && prev.id === documentId
+        ? { ...prev, users: prev.users.filter(u => u.userId !== userId) }
+        : prev
+    );
+  });
 
 
 
     documentHub.connection.on('DocumentRenamed', (documentId: number, newName: string) => {
-      if (showEditModal === documentId) {
-        setEditDocumentInfo(prev => prev ? { ...prev, name: newName } : prev);
-      }
-      setDocuments(prev =>
-        prev.map(d => d.document.id === documentId ? { ...d, document: { ...d.document, name: newName } } : d)
-      );
-    });
+    console.log('DocumentRenamed received:', { documentId, newName });
+
+    setDocuments(prev =>
+      prev.map(d =>
+        d.document.id === documentId
+          ? { ...d, document: { ...d.document, name: newName } }
+          : d
+      )
+    );
+
+    setEditDocumentInfo(prev =>
+      prev && prev.id === documentId ? { ...prev, name: newName } : prev
+    );
+  });
 
     return () => {
       documentHub.connection.off('DocumentCreated');

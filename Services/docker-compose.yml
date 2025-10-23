@@ -116,6 +116,22 @@ services:
     networks:
       - app-network_2
 
+  voiceservice:
+    image: voiceservice
+    container_name: voice_service
+    build:
+      context: ./VoiceChatService
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_URLS: http://+:80
+      ASPNETCORE_ENVIRONMENT: Development
+    depends_on:
+      - redis
+    ports:
+      - "5004:80"
+    networks:
+      - app-network_2
+
   database:
     container_name: database_migrator
     build:

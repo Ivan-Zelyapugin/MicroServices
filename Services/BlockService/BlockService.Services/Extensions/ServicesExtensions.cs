@@ -10,6 +10,7 @@ namespace BlockService.Services.Extensions
             return services
                 .AddScoped<IBlockService, BlockService>()
                 .AddScoped<IBlockImageService, BlockImageService>()
+                .AddScoped<IDocumentParticipantService,  DocumentParticipantService>()
                 .AddSingleton<IConnectionTracker, ConnectionTracker>();
         }
     }

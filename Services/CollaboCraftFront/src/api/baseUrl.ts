@@ -34,12 +34,11 @@ export const refreshAccessToken = async () => {
   const refreshToken = localStorage.getItem('refreshToken');
   if (!refreshToken) throw new Error('Нет refresh токена');
 
-  const res = await axios.put(`/api/auth/refresh-token/${refreshToken}`);
+  const res = await axios.put('/api/auth/refresh-token', { refreshToken }); // ✅ тело запроса
   const { accessToken, refreshToken: newRefreshToken } = res.data;
 
   localStorage.setItem('accessToken', accessToken);
 
-  // Обновляем refresh token только если сервер прислал новый
   if (newRefreshToken && newRefreshToken !== refreshToken) {
     localStorage.setItem('refreshToken', newRefreshToken);
   }

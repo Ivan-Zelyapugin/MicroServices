@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { VoiceChat } from './VoiceChat';
 import { useDebouncedCallback } from 'use-debounce';
 import { startBlockHub, sendBlockMessage, blockHub } from '../../api/signalr';
 import { getBlocksByDocument } from '../../api/block';
@@ -50,48 +51,60 @@ export const DocumentEditor: React.FC = () => {
   useEffect(() => {
     if (!documentId) return;
 
-    (async () => {
-      try {
-        const fetched = await getBlocksByDocument(Number(documentId), new Date(0).toISOString());
-        const docs = await getMyDocuments();
-        console.log('Fetched blocks:', fetched);
-        console.log('Fetched docs:', docs);
-        setBlocks(fetched);
-        setRole(docs.find(d => d.document.id === Number(documentId))?.role ?? null);
-      } catch (error) {
-        console.error('Error fetching blocks or documents:', error);
-      }
-    })();
+    const fetchData = async () => {
+    try {
+      const fetched = await getBlocksByDocument(Number(documentId), new Date(0).toISOString());
+      const docs = await getMyDocuments();
+      setBlocks(fetched);
+      setRole(docs.find(d => d.document.id === Number(documentId))?.role ?? null);
+    } catch (error) {
+      console.error('Error fetching blocks or documents:', error);
+    }
+  };
+
+  fetchData();
 
     blockHub.connection.on('ReceiveBlock', (newBlock: Block) => {
-      console.log('Received new block:', newBlock);
-      setBlocks(prev => [...prev, newBlock]);
-    });
+  console.log('Received new block:', newBlock);
+
+  setBlocks(prev => {
+    // предотвращаем дубликаты
+    if (prev.find(b => b.id === newBlock.id)) return prev;
+    return [...prev, newBlock];
+  });
+});
 
     blockHub.connection.on('BlockEdited', (b: Block) => {
-      console.log('Block edited:', b);
-      setBlocks(prev => prev.map(p => (p.id === b.id ? b : p)));
-    });
+  console.log('Block edited:', b);
+
+  setBlocks(prev => prev.map(p => (p.id === b.id ? b : p)));
+
+  // обновляем содержимое редактора блока, если он есть
+  const editor = editorRefs.current[b.id] || activeEditor || fallbackEditor;
+  if (editor && b.text) {
+    try {
+      const json = JSON.parse(b.text);
+      editor.commands.setContent(json, false); // false = не триггерить onUpdate
+    } catch (e) {
+      console.error('Ошибка при обновлении редактора блока:', e);
+    }
+  }
+});
 
    blockHub.connection.on('ReceiveBlockImage', (blockImage: { id: number; url: string }) => {
   const editor = editorRefs.current[blockImage.id] || activeEditor || fallbackEditor;
   if (!editor) return;
 
-  // Вставляем пустой параграф, чтобы вставить изображение после курсора
   const { state, view } = editor;
-  const { tr, selection } = state;
 
-  console.log(blockImage.id);
-  // создаём узел изображения с любыми атрибутами
   const imageNode = state.schema.nodes.image.create({
     src: `${baseUrl}/${blockImage.url}`,
     width: 300,
     height: 200,
-    imageId: blockImage.id, // здесь TS не ругается, т.к. напрямую через create
+    imageId: blockImage.id,
   });
 
-  // вставляем узел после текущей позиции курсора
-  const transaction = tr.insert(selection.to, imageNode);
+  const transaction = state.tr.insert(state.selection.to, imageNode);
   view.dispatch(transaction);
   editor.view.focus();
 });
@@ -103,6 +116,44 @@ export const DocumentEditor: React.FC = () => {
       blockHub.connection.off('ReceiveBlockImage');
     };
   }, [documentId, baseUrl, activeEditor, fallbackEditor]);
+
+  useEffect(() => {
+  const panel = document.getElementById('voice-chat-panel');
+  if (!panel) return;
+
+  let offsetX = 0, offsetY = 0, isDragging = false;
+
+  const onMouseDown = (e: MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, input, textarea')) return;
+    isDragging = true;
+    offsetX = e.clientX - panel.getBoundingClientRect().left;
+    offsetY = e.clientY - panel.getBoundingClientRect().top;
+    panel.style.transition = 'none';
+  };
+
+  const onMouseMove = (e: MouseEvent) => {
+    if (!isDragging) return;
+    panel.style.left = `${e.clientX - offsetX}px`;
+    panel.style.top = `${e.clientY - offsetY}px`;
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+  };
+
+  const onMouseUp = () => {
+    isDragging = false;
+    panel.style.transition = 'all 0.1s ease';
+  };
+
+  panel.addEventListener('mousedown', onMouseDown);
+  window.addEventListener('mousemove', onMouseMove);
+  window.addEventListener('mouseup', onMouseUp);
+
+  return () => {
+    panel.removeEventListener('mousedown', onMouseDown);
+    window.removeEventListener('mousemove', onMouseMove);
+    window.removeEventListener('mouseup', onMouseUp);
+  };
+}, []);
 
   const handleBlockChange = (id: number, json: any) => {
     setBlocks(prev => prev.map(b => (b.id === id ? { ...b, text: JSON.stringify(json) } : b)));
@@ -159,68 +210,87 @@ export const DocumentEditor: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 w-full">
-      <EditorToolbar
-        editor={activeEditor || (fallbackEditor as Editor)}
-        onAddBlock={handleAddBlock}
-        currentAttributes={currentAttributes}
-        setCurrentAttributes={setCurrentAttributes}
-        blocks={blocks}
-      />
-      <div className="flex w-full">
-        <main className="mx-auto w-[794px] p-8 flex flex-col space-y-1 bg-white">
-          {blocks.length === 0 && (
-            <div className="text-center text-gray-500 py-4">Нет блоков для редактирования</div>
-          )}
-          {blocks.map(block => {
-            let content: any = {
-              type: 'doc',
-              content: [
-                {
-                  type: 'paragraph',
-                  content: [],
-                },
-              ],
-            };
+  <div className="min-h-screen bg-gray-100 w-full relative">
+    {/* 🧰 Панель инструментов */}
+    <EditorToolbar
+      editor={activeEditor || (fallbackEditor as Editor)}
+      onAddBlock={handleAddBlock}
+      currentAttributes={currentAttributes}
+      setCurrentAttributes={setCurrentAttributes}
+      blocks={blocks}
+    />
 
-            try {
-              const parsed = JSON.parse(block.text || '{}');
-              if (parsed?.type === 'doc') {
-                content = parsed;
-              }
-            } catch (e) {
-              console.warn('Невалидный JSON в блоке', block.id, e);
-            }
+    {/* 📝 Основная область редактора */}
+    <div className="flex w-full">
+      <main className="mx-auto w-[794px] p-8 flex flex-col space-y-1 bg-white">
+        {blocks.length === 0 && (
+          <div className="text-center text-gray-500 py-4">
+            Нет блоков для редактирования
+          </div>
+        )}
 
-            return (
-              <div key={block.id} >
-                <RichTextBlockEditor
-                  content={content}
-                  editable={role === 'Creator' || role === 'Editor'}
-                  onFocus={() => {
-                    if (editorRefs.current[block.id]) {
-                      setActiveEditor(editorRefs.current[block.id]);
-                      setCurrentAttributes(getEditorAttributes(editorRefs.current[block.id]));
-                    }
-                  }}
-                  onEditorReady={(editor) => {
-                    console.log('Editor ready for block:', block.id);
-                    editorRefs.current[block.id] = editor;
-                    if (!activeEditor && blocks[0]?.id === block.id) {
-                      setActiveEditor(editor);
-                    }
-                  }}
-                  onChange={json => handleBlockChange(block.id, json)}
-                  onImagePaste={(file, insertAtCursor) =>
-                    handleImagePaste(block.id, file, insertAtCursor)
+        {blocks.map(block => {
+          let content: any = {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [] }],
+          };
+
+          try {
+            const parsed = JSON.parse(block.text || '{}');
+            if (parsed?.type === 'doc') content = parsed;
+          } catch (e) {
+            console.warn('Невалидный JSON в блоке', block.id, e);
+          }
+
+          return (
+            <div key={block.id}>
+              <RichTextBlockEditor
+                content={content}
+                editable={role === 'Creator' || role === 'Editor'}
+                onFocus={() => {
+                  if (editorRefs.current[block.id]) {
+                    setActiveEditor(editorRefs.current[block.id]);
+                    setCurrentAttributes(
+                      getEditorAttributes(editorRefs.current[block.id])
+                    );
                   }
-                  onSelectionUpdate={setCurrentAttributes}
-                />
-              </div>
-            );
-          })}
-        </main>
-      </div>
+                }}
+                onEditorReady={editor => {
+                  editorRefs.current[block.id] = editor;
+                  if (!activeEditor && blocks[0]?.id === block.id)
+                    setActiveEditor(editor);
+                }}
+                onChange={json => handleBlockChange(block.id, json)}
+                onImagePaste={(file, insertAtCursor) =>
+                  handleImagePaste(block.id, file, insertAtCursor)
+                }
+                onSelectionUpdate={setCurrentAttributes}
+              />
+            </div>
+          );
+        })}
+      </main>
     </div>
-  );
+
+    {/* 🎙 Плавающая панель голосового чата */}
+    {documentId && (
+      <div
+        id="voice-chat-panel"
+        className="
+          fixed right-6 bottom-6 
+          w-80 h-96 
+          bg-white shadow-2xl border border-gray-200 
+          rounded-xl p-4 z-50 cursor-move 
+          resize overflow-auto
+        "
+      >
+        <VoiceChat
+          documentId={Number(documentId)}
+          username={localStorage.getItem('username') || 'User'}
+        />
+      </div>
+    )}
+  </div>
+);
+
 };
