@@ -22,6 +22,8 @@ export const DocumentEditor: React.FC = () => {
   const [currentAttributes, setCurrentAttributes] = useState<EditorAttributes>({});
   const [activeEditor, setActiveEditor] = useState<Editor | null>(null);
   const editorRefs = useRef<Record<number, Editor>>({});
+  const [documentTitle, setDocumentTitle] = useState<string>('Документ');
+  const [currentUser, setCurrentUser] = useState<{ id: number; name: string } | null>(null);
 
   const fallbackEditor = useEditor({
     extensions: commonExtensions,
@@ -57,6 +59,8 @@ export const DocumentEditor: React.FC = () => {
       const docs = await getMyDocuments();
       setBlocks(fetched);
       setRole(docs.find(d => d.document.id === Number(documentId))?.role ?? null);
+      const currentDoc = docs.find(d => d.document.id === Number(documentId));
+      setDocumentTitle(currentDoc?.document.name ?? 'Документ');
     } catch (error) {
       console.error('Error fetching blocks or documents:', error);
     }
@@ -287,6 +291,7 @@ export const DocumentEditor: React.FC = () => {
         <VoiceChat
           documentId={Number(documentId)}
           username={localStorage.getItem('username') || 'User'}
+          documentTitle={documentTitle}
         />
       </div>
     )}

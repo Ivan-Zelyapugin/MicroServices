@@ -5,12 +5,14 @@ import { Mic, MicOff, Monitor, MonitorOff } from 'lucide-react';
 interface VoiceChatProps {
   documentId: number;
   username: string;
-  documentTitle?: string; // добавим для отображения названия документа
+  documentTitle?: string;
 }
 
 interface Participant {
   connectionId: string;
   username: string;
+  userId: number; 
+  muted?: boolean;
 }
 
 export const VoiceChat: React.FC<VoiceChatProps> = ({
@@ -27,23 +29,33 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   const localStream = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
 
+  // 🔹 Инициализация соединения
   useEffect(() => {
     const connection = voiceHub.connection;
 
     const init = async () => {
       await startVoiceHub();
-      await sendVoiceMessage('JoinRoom', [documentId, 0, username]);
-      localStream.current = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      // 🎚️ Запускаем анализ громкости (определяем кто говорит)
+      // Подключаемся к комнате
+      await sendVoiceMessage('JoinRoom', [documentId, 0, username]);
+
+      // Запрашиваем микрофон
+      try {
+        localStream.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        console.error('Не удалось получить доступ к микрофону:', err);
+        return;
+      }
+
+      // 🎚️ Инициализируем анализ громкости
       const audioContext = new AudioContext();
       const source = audioContext.createMediaStreamSource(localStream.current);
       analyserRef.current = audioContext.createAnalyser();
       source.connect(analyserRef.current);
-
       detectSpeaking();
     };
 
+    // 🔸 Подписки SignalR
     connection.on('ParticipantJoined', (p: Participant) => {
       console.log('👤 joined', p);
       setParticipants(prev => [...prev, p]);
@@ -69,7 +81,18 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
     connection.on('ReceiveAnswer', async (fromId, answer) => {
       const pc = peers.current[fromId];
-      if (pc) await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(answer)));
+      if (!pc) return;
+
+      const desc = new RTCSessionDescription(JSON.parse(answer));
+      if (pc.signalingState !== 'stable') {
+        try {
+          await pc.setRemoteDescription(desc);
+        } catch (err) {
+          console.warn('⚠️ Ошибка setRemoteDescription (ReceiveAnswer):', err);
+        }
+      } else {
+        console.log('🟡 Игнорируем дублирующий answer (состояние stable)');
+      }
     });
 
     connection.on('ReceiveIceCandidate', async (fromId, candidate) => {
@@ -77,18 +100,30 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       if (pc && candidate) await pc.addIceCandidate(JSON.parse(candidate));
     });
 
+    // 🟢 Подписка на ParticipantMuted
+    connection.on('ParticipantMuted', (connectionId: string, isMuted: boolean) => {
+      console.log('🔇 ParticipantMuted', connectionId, isMuted);
+      setParticipants(prev =>
+        prev.map(p =>
+          p.connectionId === connectionId ? { ...p, muted: isMuted } : p
+        )
+      );
+    });
+
     init();
 
+    // Очистка
     return () => {
       connection.off('ParticipantJoined');
       connection.off('ParticipantLeft');
       connection.off('ReceiveOffer');
       connection.off('ReceiveAnswer');
       connection.off('ReceiveIceCandidate');
+      connection.off('ParticipantMuted');
     };
   }, [documentId, username]);
 
-  /** 🎤 Анализ громкости микрофона — подсветка активного говорящего */
+  // 🎤 Анализ громкости микрофона
   const detectSpeaking = () => {
     if (!analyserRef.current) return;
     const analyser = analyserRef.current;
@@ -97,18 +132,15 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     const checkVolume = () => {
       analyser.getByteFrequencyData(data);
       const volume = data.reduce((a, b) => a + b, 0) / data.length;
-      if (volume > 15) {
-        setSpeakingUser(username);
-      } else if (speakingUser === username) {
-        setSpeakingUser(null);
-      }
+      if (volume > 15) setSpeakingUser(username);
+      else if (speakingUser === username) setSpeakingUser(null);
       requestAnimationFrame(checkVolume);
     };
 
     checkVolume();
   };
 
-  /** Создание PeerConnection */
+  // 🎧 Создание PeerConnection
   function createPeer(targetId: string, initiator: boolean) {
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
@@ -143,15 +175,41 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     return pc;
   }
 
-  /** 🎚️ Переключение микрофона */
-  const toggleMute = () => {
-    if (!localStream.current) return;
-    const enabled = !muted;
-    localStream.current.getAudioTracks().forEach(track => (track.enabled = enabled));
-    setMuted(!enabled);
-  };
+  // 🎙️ Переключение микрофона
+  const toggleMute = async () => {
+  // Если микрофон ещё не получен, запрашиваем доступ
+  if (!localStream.current) {
+    try {
+      localStream.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      console.error('Не удалось получить микрофон:', err);
+      return;
+    }
+  }
 
-  /** 🖥️ Переключение трансляции экрана */
+  // Находим своего участника по username
+  const self = participants.find(p => p.username === username);
+  if (!self) {
+    console.warn('Не найден текущий участник для mute');
+    return;
+  }
+
+  // Переключаем локальный микрофон
+  const newMuted = !muted;
+  localStream.current.getAudioTracks().forEach(track => (track.enabled = !newMuted));
+  setMuted(newMuted);
+
+  // Отправляем на сервер правильный userId
+  try {
+    await sendVoiceMessage('ToggleMute', [documentId, self.userId, newMuted]);
+    console.log(`🔇 Отправлено ToggleMute для userId=${self.userId}, muted=${newMuted}`);
+  } catch (e) {
+    console.warn('Не удалось отправить ToggleMute на сервер', e);
+  }
+};
+
+
+  // 🖥️ Трансляция экрана
   const toggleScreenShare = async () => {
     if (!screenSharing) {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
@@ -169,36 +227,35 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     }
   };
 
+  // 🧩 Интерфейс
   return (
     <div className="flex flex-col h-full border rounded-lg bg-white shadow-inner p-3">
-      {/* 🔹 Заголовок */}
       <div className="font-semibold text-lg mb-3 border-b pb-1 text-gray-700">
         {documentTitle}
       </div>
 
-      {/* 👥 Участники */}
       <div className="flex-1 overflow-auto space-y-2">
         {participants.map(p => (
           <div
             key={p.connectionId}
-            className={`p-2 rounded-md text-sm transition-all ${
+            className={`p-2 rounded-md text-sm transition-all flex items-center justify-between ${
               speakingUser === p.username ? 'bg-green-100 border border-green-400' : 'bg-gray-50'
             }`}
           >
-            {p.username}
+            <span>{p.username}</span>
+            {p.muted && <MicOff size={16} className="text-red-400" />}
           </div>
         ))}
-        {/* отображаем текущего пользователя */}
         <div
-          className={`p-2 rounded-md text-sm transition-all ${
+          className={`p-2 rounded-md text-sm transition-all flex items-center justify-between ${
             speakingUser === username ? 'bg-green-100 border border-green-400' : 'bg-gray-50'
           }`}
         >
-          {username} (Вы)
+          <span>{username} (Вы)</span>
+          {muted && <MicOff size={16} className="text-red-400" />}
         </div>
       </div>
 
-      {/* 🎛️ Кнопки управления */}
       <div className="flex justify-center gap-4 mt-3 pt-2 border-t">
         <button
           onClick={toggleMute}
@@ -214,9 +271,9 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           className="p-2 rounded-full hover:bg-gray-100 transition"
         >
           {screenSharing ? (
-            <MonitorOff size={24} className="text-red-500" />
+            <Monitor size={24} className="text-red-500" />
           ) : (
-            <Monitor size={24} />
+            <MonitorOff size={24} />
           )}
         </button>
       </div>
