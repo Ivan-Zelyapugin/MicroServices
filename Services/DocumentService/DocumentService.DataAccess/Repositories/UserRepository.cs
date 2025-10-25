@@ -3,6 +3,7 @@ using DocumentService.DataAccess.Dapper.Models;
 using DocumentService.DataAccess.Models;
 using DocumentService.DataAccess.Repositories.Interfaces;
 using DocumentService.DataAccess.Repositories.Scripts;
+using DocumentService.Models;
 
 namespace DocumentService.DataAccess.Repositories
 {
@@ -23,6 +24,11 @@ namespace DocumentService.DataAccess.Repositories
             return await dapperContext.ListOrEmpty<DbUser>(
                 new QueryObject(Sql.GetUsersByEmails, new { Usernames = usernames.ToArray() })
             );
+        }
+
+        public async Task<User> GetMe(int Id)
+        {
+            return await dapperContext.CommandWithResponse<User>(new QueryObject(Sql.GetMe, Id));
         }
     }
 }

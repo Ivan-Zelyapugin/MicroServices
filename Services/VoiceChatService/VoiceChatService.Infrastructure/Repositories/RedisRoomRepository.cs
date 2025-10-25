@@ -75,7 +75,33 @@ namespace VoiceChatService.Infrastructure.Repositories
                 room = new VoiceRoom { DocumentId = documentId };
             }
 
-            room.Participants[participant.UserId] = participant;
+            // --- Проверяем, есть ли уже участник с таким UserId ---
+            if (room.Participants.TryGetValue(participant.UserId, out var existing))
+            {
+                // Обновляем connectionId и остальные данные
+                existing.ConnectionId = participant.ConnectionId;
+                existing.Username = participant.Username;
+                existing.Role = participant.Role;
+                existing.AudioState = participant.AudioState;
+                existing.VideoState = participant.VideoState;
+                existing.IsScreenSharing = participant.IsScreenSharing;
+            }
+            else
+            {
+                // Удаляем участников с таким же ConnectionId, если они есть (старые подключения)
+                var duplicates = room.Participants
+                    .Where(p => p.Value.ConnectionId == participant.ConnectionId)
+                    .Select(p => p.Key)
+                    .ToList();
+
+                foreach (var key in duplicates)
+                {
+                    room.Participants.Remove(key);
+                }
+
+                // Добавляем нового участника
+                room.Participants[participant.UserId] = participant;
+            }
 
             await SaveRoomAsync(room).ConfigureAwait(false);
         }

@@ -1,17 +1,30 @@
-﻿using DocumentService.Models.Document;
+﻿using DocumentService.DataAccess.Repositories.Interfaces;
+using DocumentService.Models.Document;
 using DocumentService.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DocumentService.Api.Controllers
 {
     [Route("api/[controller]")]
-    public class DocumentController(IDocumentService documentService) : BaseController
+    public class DocumentController(IDocumentService documentService, IUserRepository userRepository) : BaseController
     {
 
         [HttpGet("my")]
         public async Task<IActionResult> GetMyDocuments()
         {
             return Ok(await documentService.GetDocumentsByUserId(Id));
+        }
+
+        [HttpGet("me")]
+        public IActionResult GetCurrentUser()
+        {
+            return Ok(new
+            {
+                id = Id,
+                username = Username,
+                email = Email,
+                role = Role.ToString()
+            });
         }
 
         [HttpGet("{id:int}")]

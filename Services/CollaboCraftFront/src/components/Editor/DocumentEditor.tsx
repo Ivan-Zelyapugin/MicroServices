@@ -4,7 +4,7 @@ import { VoiceChat } from './VoiceChat';
 import { useDebouncedCallback } from 'use-debounce';
 import { startBlockHub, sendBlockMessage, blockHub } from '../../api/signalr';
 import { getBlocksByDocument } from '../../api/block';
-import { getMyDocuments } from '../../api/document';
+import { getMyDocuments, getCurrentUser } from '../../api/document';
 import { RichTextBlockEditor } from './RichTextBlockEditor';
 import { EditorToolbar } from '../ToolBar/EditorToolbar';
 import { Block } from '../../models/block';
@@ -33,6 +33,20 @@ export const DocumentEditor: React.FC = () => {
       setCurrentAttributes(getEditorAttributes(editor));
     },
   });
+
+  useEffect(() => {
+  const loadUser = async () => {
+    try {
+      const user = await getCurrentUser();
+      setCurrentUser({ id: user.id, name: user.username });
+      localStorage.setItem('username', user.username);
+    } catch (error) {
+      console.error('Не удалось получить текущего пользователя:', error);
+    }
+  };
+
+  loadUser();
+}, []);
 
   useEffect(() => {
     if (fallbackEditor) {
@@ -289,10 +303,11 @@ export const DocumentEditor: React.FC = () => {
         "
       >
         <VoiceChat
-          documentId={Number(documentId)}
-          username={localStorage.getItem('username') || 'User'}
-          documentTitle={documentTitle}
-        />
+  documentId={Number(documentId)}
+  username={currentUser?.name || localStorage.getItem('username') || 'User'}
+  userId={currentUser?.id || 0}
+  documentTitle={documentTitle}
+/>
       </div>
     )}
   </div>

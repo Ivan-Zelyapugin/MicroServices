@@ -1,5 +1,6 @@
 ﻿using VoiceChatService.Application.Interfaces;
 using VoiceChatService.Domain.Models;
+using VoiceChatService.Domain.Models.Enums;
 using VoiceChatService.Infrastructure.Repositories.Interfaces;
 
 namespace VoiceChatService.Application
@@ -31,6 +32,8 @@ namespace VoiceChatService.Application
             if (participant == null) return;
 
             participant.IsMuted = mute;
+            participant.AudioState = mute ? MediaState.Inactive : MediaState.Active;
+
             await _roomRepository.AddOrUpdateParticipantAsync(documentId, participant);
         }
 
@@ -40,6 +43,8 @@ namespace VoiceChatService.Application
             if (participant == null) return;
 
             participant.IsCameraOn = cameraOn;
+            participant.VideoState = cameraOn ? MediaState.Active : MediaState.Inactive;
+
             await _roomRepository.AddOrUpdateParticipantAsync(documentId, participant);
         }
 
@@ -60,6 +65,28 @@ namespace VoiceChatService.Application
         public async Task<IReadOnlyCollection<VoiceRoom>> GetAllActiveRoomsAsync()
         {
             return await _roomRepository.GetAllRoomsAsync();
+        }
+
+        public async Task SetAudioStateAsync(int documentId, int userId, MediaState state)
+        {
+            var participant = await _roomRepository.GetParticipantAsync(documentId, userId);
+            if (participant == null) return;
+
+            participant.AudioState = state;
+            participant.IsMuted = state == MediaState.Inactive;
+
+            await _roomRepository.AddOrUpdateParticipantAsync(documentId, participant);
+        }
+
+        public async Task SetVideoStateAsync(int documentId, int userId, MediaState state)
+        {
+            var participant = await _roomRepository.GetParticipantAsync(documentId, userId);
+            if (participant == null) return;
+
+            participant.VideoState = state;
+            participant.IsCameraOn = state == MediaState.Active;
+
+            await _roomRepository.AddOrUpdateParticipantAsync(documentId, participant);
         }
     }
 }

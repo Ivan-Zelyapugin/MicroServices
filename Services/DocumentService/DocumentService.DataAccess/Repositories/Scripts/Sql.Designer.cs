@@ -67,6 +67,14 @@ namespace DocumentService.DataAccess.Repositories.Scripts {
             }
         }
 
+        internal static string GetMe
+        {
+            get
+            {
+                return ResourceManager.GetString("GetMe", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   Перезаписывает свойство CurrentUICulture текущего потока для всех
         ///   обращений к ресурсу с помощью этого класса ресурса со строгой типизацией.

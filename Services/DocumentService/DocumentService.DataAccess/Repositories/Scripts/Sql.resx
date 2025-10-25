@@ -151,6 +151,9 @@
   <data name="GetDocumentsByUserId" type="System.Resources.ResXFileRef, System.Windows.Forms">
     <value>Document\GetDocumentsByUserId.sql;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </data>
+  <data name="GetMe" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>User\GetMe.sql;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </data>
   <data name="GetUserRoleInDocument" type="System.Resources.ResXFileRef, System.Windows.Forms">
     <value>DocumentParticipant\GetUserRoleInDocument.sql;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </data>
