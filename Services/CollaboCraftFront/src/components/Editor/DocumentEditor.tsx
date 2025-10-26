@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { VoiceChat } from './VoiceChat';
+import VoiceChat from './VoiceChat';
 import { useDebouncedCallback } from 'use-debounce';
 import { startBlockHub, sendBlockMessage, blockHub } from '../../api/signalr';
 import { getBlocksByDocument } from '../../api/block';

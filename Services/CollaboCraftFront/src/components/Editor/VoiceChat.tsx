@@ -5,445 +5,448 @@ import { Mic, MicOff, Monitor, MonitorOff } from 'lucide-react';
 
 interface VoiceChatProps {
   documentId: number;
-  username: string;
   userId: number;
+  username: string;
   documentTitle?: string;
 }
 
 interface Participant {
-  connectionId: string;
-  username: string;
   userId: number;
-  audioState?: 'Active' | 'Inactive';
+  username: string;
+  connectionId: string;
+  audioState?: string;
   isScreenSharing?: boolean;
+  speaking?: boolean;
 }
 
-interface RemoteStream {
+interface RemoteStreamItem {
   connectionId: string;
   stream: MediaStream;
-  type: 'audio' | 'screen';
+  type: 'audio' | 'video';
 }
 
 export const VoiceChat: React.FC<VoiceChatProps> = ({
   documentId,
-  username,
   userId,
+  username,
   documentTitle = 'Документ',
 }) => {
-  // state
   const [participants, setParticipants] = useState<Participant[]>([]);
-  const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
   const [muted, setMuted] = useState(false);
   const [screenSharing, setScreenSharing] = useState(false);
   const [viewingConnectionId, setViewingConnectionId] = useState<string | null>(null);
 
-  // refs
-  const connectionRef = useRef(voiceHub.connection);
-  const peersAudio = useRef<Record<string, RTCPeerConnection>>({});
-  const peersScreen = useRef<Record<string, RTCPeerConnection>>({});
+  // local streams
   const localAudioStream = useRef<MediaStream | null>(null);
   const localScreenStream = useRef<MediaStream | null>(null);
+
+  // separate peer maps
+  const audioPeers = useRef<Map<string, RTCPeerConnection>>(new Map()); // key: remote connectionId
+  const screenPeers = useRef<Map<string, RTCPeerConnection>>(new Map()); // key: remote connectionId
+
+  // remote media elements refs
+  const remoteAudioEls = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const remoteVideoEls = useRef<Map<string, HTMLVideoElement>>(new Map());
+
+  // analyser for speaking detection
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const videoViewRef = useRef<HTMLVideoElement | null>(null);
-  const participantsRef = useRef<Participant[]>([]);
+  const rafRef = useRef<number | null>(null);
 
-  // helpers to keep ref in sync
-  const setParticipantsAndRef = (updater: (prev: Participant[]) => Participant[]) => {
+  // helper to update participants state immutably and keep dedupes by connectionId/userId
+  const upsertParticipants = (items: Participant[]) => {
     setParticipants(prev => {
-      const next = updater(prev);
-      participantsRef.current = next;
-      return next;
+      const mapByUser = new Map<number, Participant>();
+      // keep local existing first
+      prev.forEach(p => mapByUser.set(p.userId, p));
+      items.forEach(p => mapByUser.set(p.userId, { ...mapByUser.get(p.userId), ...p } as Participant));
+      return Array.from(mapByUser.values());
     });
   };
 
-  const addRemoteStream = (connectionId: string, stream: MediaStream, type: 'audio' | 'screen') => {
-    setRemoteStreams(prev => {
-      if (prev.some(r => r.connectionId === connectionId && r.type === type)) return prev;
-      return [...prev, { connectionId, stream, type: type === 'screen' ? 'screen' : 'audio' }];
-    });
-  };
+  // --- Initialization: start hub, get existing participants, setup local audio ---
+  useEffect(() => {
+    let conn = voiceHub.connection;
+    let mounted = true;
 
-  // create audio-only peer
-  const createAudioPeer = (targetConnId: string, initiator: boolean) => {
-    if (peersAudio.current[targetConnId]) return peersAudio.current[targetConnId];
+    const registerHandlers = () => {
+      conn.on('JoinRoomError', (msg: string) => {
+        console.error('JoinRoomError from server:', msg);
+      });
 
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-    peersAudio.current[targetConnId] = pc;
+      conn.on('ExistingParticipants', (existing: any) => {
+        // normalize incoming structure (server sends array of anonymous objects)
+        const arr = Array.isArray(existing) ? existing : (existing ? Object.values(existing) : []);
+        const parsed: Participant[] = arr.map((p: any) => ({
+          userId: p.userId,
+          username: p.username,
+          connectionId: p.connectionId,
+          audioState: p.audioState,
+          isScreenSharing: p.isScreenSharing,
+        }));
 
-    // add local audio tracks if available
-    if (localAudioStream.current) {
-      localAudioStream.current.getAudioTracks().forEach(t => pc.addTrack(t, localAudioStream.current!));
-    }
+        // keep local participant at top
+        upsertParticipants(parsed);
 
-    pc.ontrack = (event) => {
-      const stream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
-      addRemoteStream(targetConnId, stream, 'audio');
-    };
+        // create audio peers to existing participants (we are initiator)
+        parsed.forEach(p => {
+          if (p.connectionId && p.userId !== userId && !audioPeers.current.has(p.connectionId)) {
+            createAudioPeer(p.connectionId, true).catch(e => console.warn('createAudioPeer error', e));
+          }
+        });
+      });
 
-    pc.onicecandidate = (ev) => {
-      if (ev.candidate) sendVoiceMessage('SendIceCandidate', [targetConnId, JSON.stringify(ev.candidate)]);
-    };
-
-    pc.onnegotiationneeded = async () => {
-      try {
-        if (pc.signalingState === 'stable') {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          await sendVoiceMessage('SendOffer', [targetConnId, JSON.stringify(pc.localDescription)]);
+      conn.on('ParticipantJoined', (p: any) => {
+        const part: Participant = {
+          userId: p.userId,
+          username: p.username,
+          connectionId: p.connectionId,
+          audioState: p.audioState,
+          isScreenSharing: p.isScreenSharing,
+        };
+        setParticipants(prev => (prev.some(x => x.connectionId === part.connectionId) ? prev : [...prev, part]));
+        // create audio peer (we are initiator to the joining participant)
+        if (!audioPeers.current.has(part.connectionId) && part.connectionId !== (conn.connectionId || '')) {
+          createAudioPeer(part.connectionId, true).catch(e => console.warn('createAudioPeer error', e));
         }
-      } catch (err) {
-        console.warn('audio onnegotiationneeded error', err);
-      }
-    };
+      });
 
-    // if initiator, kick off initial offer
-    if (initiator) {
-      (async () => {
+      conn.on('ParticipantLeft', (leftUserId: number) => {
+        setParticipants(prev => prev.filter(p => p.userId !== leftUserId));
+        // close peers for that user
+        // find connectionId(s)
+        audioPeers.current.forEach((pc, connId) => {
+          const p = participants.find(x => x.connectionId === connId);
+          if (p?.userId === leftUserId) {
+            try { pc.close(); } catch {}
+            audioPeers.current.delete(connId);
+            const el = remoteAudioEls.current.get(connId);
+            if (el) { try { el.srcObject = null; el.remove(); } catch {} }
+            remoteAudioEls.current.delete(connId);
+          }
+        });
+        screenPeers.current.forEach((pc, connId) => {
+          const p = participants.find(x => x.connectionId === connId);
+          if (p?.userId === leftUserId) {
+            try { pc.close(); } catch {}
+            screenPeers.current.delete(connId);
+            const v = remoteVideoEls.current.get(connId);
+            if (v) { try { v.srcObject = null; v.remove(); } catch {} }
+            remoteVideoEls.current.delete(connId);
+          }
+        });
+      });
+
+      conn.on('AudioStateChanged', (changedUserId: number, newState: string) => {
+        setParticipants(prev => prev.map(p => (p.userId === changedUserId ? { ...p, audioState: newState } : p)));
+      });
+
+      conn.on('ScreenShareStateChanged', (changedUserId: number, isSharing: boolean) => {
+        setParticipants(prev => prev.map(p => (p.userId === changedUserId ? { ...p, isScreenSharing: isSharing } : p)));
+        // If someone started sharing, create screen peer to them (initiator)
+        if (isSharing) {
+          const p = participants.find(x => x.userId === changedUserId);
+          if (p && p.connectionId && !screenPeers.current.has(p.connectionId)) {
+            createScreenPeer(p.connectionId, true).catch(e => console.warn('createScreenPeer error', e));
+          }
+        } else {
+          // remove video element for that connection
+          const p = participants.find(x => x.userId === changedUserId);
+          if (p?.connectionId) {
+            const v = remoteVideoEls.current.get(p.connectionId);
+            if (v) { v.srcObject = null; try { v.remove(); } catch {} }
+            remoteVideoEls.current.delete(p.connectionId);
+            screenPeers.current.get(p.connectionId)?.close();
+            screenPeers.current.delete(p.connectionId);
+            if (viewingConnectionId === p.connectionId) setViewingConnectionId(null);
+          }
+        }
+      });
+
+      // WebRTC signaling handlers from server (sender connectionId is first arg)
+      conn.on('ReceiveOffer', async (fromConnectionId: string, offerSdp: string) => {
+        // Server forwards Context.ConnectionId as first arg (the remote connection id)
+        // Determine whether this offer is for audio or for screen:
+        // We expect on-screen offers the client created when screen sharing; to keep protocol simple,
+        // We will try to answer both: if we already have screenPeer for that connection, treat as screen, else audio.
+        // But prefer to check whether offer contains "m=video" to detect screen.
         try {
-          if (pc.signalingState === 'stable') {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            await sendVoiceMessage('SendOffer', [targetConnId, JSON.stringify(pc.localDescription)]);
+          const sdpLower = (offerSdp || '').toLowerCase();
+          const isVideoOffer = sdpLower.includes('m=video') || sdpLower.includes('m=video');
+          if (isVideoOffer) {
+            const pc = await createScreenPeer(fromConnectionId, false);
+            await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offerSdp }));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await sendVoiceMessage('SendAnswer', [fromConnectionId, JSON.stringify(answer)]);
+          } else {
+            const pc = await createAudioPeer(fromConnectionId, false);
+            await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offerSdp }));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await sendVoiceMessage('SendAnswer', [fromConnectionId, JSON.stringify(answer)]);
           }
         } catch (err) {
-          console.warn('audio initial offer error', err);
+          console.warn('ReceiveOffer handler error', err);
         }
-      })();
-    }
+      });
 
-    return pc;
-  };
-
-  // create screen-only peer (video)
-  const createScreenPeer = (targetConnId: string, initiator: boolean) => {
-    if (peersScreen.current[targetConnId]) return peersScreen.current[targetConnId];
-
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-    peersScreen.current[targetConnId] = pc;
-
-    // add local screen tracks if available
-    if (localScreenStream.current) {
-      localScreenStream.current.getVideoTracks().forEach(t => pc.addTrack(t, localScreenStream.current!));
-    }
-
-    pc.ontrack = (event) => {
-      const stream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
-      addRemoteStream(targetConnId, stream, 'screen');
-    };
-
-    pc.onicecandidate = (ev) => {
-      if (ev.candidate) sendVoiceMessage('SendIceCandidate', [targetConnId, JSON.stringify(ev.candidate)]);
-    };
-
-    pc.onnegotiationneeded = async () => {
-      try {
-        if (pc.signalingState === 'stable') {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          await sendVoiceMessage('SendOffer', [targetConnId, JSON.stringify(pc.localDescription)]);
-        }
-      } catch (err) {
-        console.warn('screen onnegotiationneeded error', err);
-      }
-    };
-
-    if (initiator) {
-      (async () => {
+      conn.on('ReceiveAnswer', async (fromConnectionId: string, answerSdp: string) => {
+        // Try both maps
         try {
-          if (pc.signalingState === 'stable') {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            await sendVoiceMessage('SendOffer', [targetConnId, JSON.stringify(pc.localDescription)]);
+          const pcA = audioPeers.current.get(fromConnectionId);
+          if (pcA && pcA.signalingState === 'have-local-offer') {
+            await pcA.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }));
+            return;
+          }
+          const pcV = screenPeers.current.get(fromConnectionId);
+          if (pcV && pcV.signalingState === 'have-local-offer') {
+            await pcV.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }));
+            return;
           }
         } catch (err) {
-          console.warn('screen initial offer error', err);
+          console.warn('ReceiveAnswer error', err);
         }
-      })();
-    }
+      });
 
-    return pc;
-  };
-
-  // attach video viewer when remote screen chosen
-  useEffect(() => {
-    const remote = remoteStreams.find(r => r.type === 'screen' && r.connectionId === viewingConnectionId);
-    if (videoViewRef.current) {
-      if (remote) {
+      conn.on('ReceiveIceCandidate', async (fromConnectionId: string, candidateJson: string) => {
         try {
-          videoViewRef.current.srcObject = remote.stream;
-        } catch (e) {
-          console.warn('attach screen stream failed', e);
+          const cand = JSON.parse(candidateJson);
+          const ice = new RTCIceCandidate(cand);
+          const pcA = audioPeers.current.get(fromConnectionId);
+          if (pcA) { await pcA.addIceCandidate(ice); return; }
+          const pcV = screenPeers.current.get(fromConnectionId);
+          if (pcV) { await pcV.addIceCandidate(ice); return; }
+        } catch (err) {
+          console.warn('ReceiveIceCandidate error', err);
         }
-      } else {
-        // clear
-        try { (videoViewRef.current as HTMLVideoElement).srcObject = null; } catch {}
-      }
-    }
-  }, [viewingConnectionId, remoteStreams]);
+      });
+    };
 
-  // receive offer/answer/ice and route to audio/screen peer by SDP content
-  useEffect(() => {
-    const connection = voiceHub.connection;
-    connectionRef.current = connection;
-
-    // init local audio and join
-    const init = async () => {
+    const start = async () => {
       try {
         await startVoiceHub();
-
-        // get mic
-        try {
-          localAudioStream.current = await navigator.mediaDevices.getUserMedia({ audio: true });
-        } catch (err) {
-          console.error('getUserMedia audio failed', err);
-        }
-
-        // analyser for speaking visualization (optional)
-        try {
-          const audioCtx = new AudioContext();
-          const source = audioCtx.createMediaStreamSource(localAudioStream.current!);
-          analyserRef.current = audioCtx.createAnalyser();
-          source.connect(analyserRef.current);
-          // we don't start heavy analyzer loop here to keep code simple (you can add if needed)
-        } catch {}
-
+        if (!mounted) return;
+        registerHandlers();
+        // ensure we have local audio
+        await initLocalAudio();
         // join room on server
         await sendVoiceMessage('JoinRoom', [documentId, userId, username]);
+        // add local placeholder participant (server will reply with ExistingParticipants)
+        setParticipants(prev => {
+          if (prev.some(p => p.userId === userId)) return prev;
+          return [{ userId, username, connectionId: voiceHub.connection.connectionId || '', audioState: 'Active', isScreenSharing: false }, ...prev];
+        });
       } catch (err) {
         console.error('VoiceChat init error', err);
       }
     };
 
-    // helpers to parse incoming descriptor and route by sdp (video or not)
-    const isVideoDesc = (descJson: any) => {
-      try {
-        const sdp: string = descJson.sdp || '';
-        return sdp.includes('\nm=video') || sdp.includes('m=video');
-      } catch {
-        return false;
-      }
-    };
-
-    // ExistingParticipants: server sends list of already connected participants (we need to show them and create peers)
-    connection.on('ExistingParticipants', (existing: any) => {
-      const arr = Array.isArray(existing) ? existing : (existing ? Object.values(existing) : []);
-      const parsed: Participant[] = arr.map((p: any) => ({
-        connectionId: p.connectionId,
-        username: p.username,
-        userId: p.userId,
-        audioState: p.audioState === 'Inactive' ? 'Inactive' : 'Active',
-        isScreenSharing: !!p.isScreenSharing,
-      }));
-
-      // merge into participants (dedupe by userId)
-      setParticipantsAndRef(prev => {
-        const map = new Map<number, Participant>();
-        // keep local if exist
-        prev.forEach(x => map.set(x.userId, x));
-        parsed.forEach(x => map.set(x.userId, x));
-        // ensure local is present
-        if (!map.has(userId)) {
-          map.set(userId, { connectionId: connection.connectionId || '', username, userId, audioState: 'Active', isScreenSharing: false });
-        }
-        return Array.from(map.values());
-      });
-
-      // create audio peers to existing others
-      parsed.forEach(p => {
-        if (p.connectionId && p.userId !== userId) {
-          createAudioPeer(p.connectionId, true);
-          // if they already share screen, create screen peer too (initiator)
-          if (p.isScreenSharing) createScreenPeer(p.connectionId, true);
-        }
-      });
-    });
-
-    // participant joined
-    connection.on('ParticipantJoined', (p: any) => {
-      const part: Participant = {
-        connectionId: p.connectionId,
-        username: p.username,
-        userId: p.userId,
-        audioState: p.audioState === 'Inactive' ? 'Inactive' : 'Active',
-        isScreenSharing: !!p.isScreenSharing,
-      };
-
-      setParticipantsAndRef(prev => {
-        if (prev.some(x => x.userId === part.userId)) return prev;
-        return [...prev, part];
-      });
-
-      // create audio peer to them
-      if (part.connectionId && part.userId !== userId) {
-        createAudioPeer(part.connectionId, true);
-        if (part.isScreenSharing) createScreenPeer(part.connectionId, true);
-      }
-    });
-
-    // participant left
-    connection.on('ParticipantLeft', (leftUserId: number) => {
-      const left = participantsRef.current.find(p => p.userId === leftUserId);
-      if (left) {
-        // close peers
-        const conn = left.connectionId;
-        if (peersAudio.current[conn]) {
-          try { peersAudio.current[conn].close(); } catch {}
-          delete peersAudio.current[conn];
-        }
-        if (peersScreen.current[conn]) {
-          try { peersScreen.current[conn].close(); } catch {}
-          delete peersScreen.current[conn];
-        }
-      }
-      setParticipantsAndRef(prev => prev.filter(p => p.userId !== leftUserId));
-      setRemoteStreams(prev => prev.filter(r => r.connectionId !== (left?.connectionId)));
-      // if the left user was being viewed, close view
-      if (left?.connectionId === viewingConnectionId) setViewingConnectionId(null);
-    });
-
-    // audio state changed (mute/unmute)
-    connection.on('AudioStateChanged', (changedUserId: number, newState: string) => {
-      setParticipantsAndRef(prev => prev.map(p => p.userId === changedUserId ? { ...p, audioState: newState === 'Inactive' ? 'Inactive' : 'Active' } : p));
-    });
-
-    // screen share state changed
-    connection.on('ScreenShareStateChanged', (changedUserId: number, isSharing: boolean) => {
-      // update flag
-      setParticipantsAndRef(prev => prev.map(p => p.userId === changedUserId ? { ...p, isScreenSharing: isSharing } : p));
-      // if someone started sharing, create screen peer for them (initiator)
-      const participant = participantsRef.current.find(p => p.userId === changedUserId);
-      if (isSharing && participant?.connectionId) {
-        if (!peersScreen.current[participant.connectionId]) createScreenPeer(participant.connectionId, true);
-      } else if (!isSharing) {
-        // remove their remote screen streams
-        setRemoteStreams(prev => prev.filter(r => !(r.connectionId === participant?.connectionId && r.type === 'screen')));
-        if (viewingConnectionId === participant?.connectionId) setViewingConnectionId(null);
-      }
-    });
-
-    // ReceiveOffer: fromId is sender's connectionId, offer is localDescription JSON string
-    connection.on('ReceiveOffer', async (fromConnId: string, offerStr: string) => {
-      try {
-        const descObj = JSON.parse(offerStr);
-        const isVideo = isVideoDesc(descObj);
-
-        const pc = isVideo ? createScreenPeer(fromConnId, false) : createAudioPeer(fromConnId, false);
-        await pc.setRemoteDescription(new RTCSessionDescription(descObj));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        await sendVoiceMessage('SendAnswer', [fromConnId, JSON.stringify(pc.localDescription)]);
-      } catch (err) {
-        console.error('ReceiveOffer handler error', err);
-      }
-    });
-
-    // ReceiveAnswer
-    connection.on('ReceiveAnswer', async (fromConnId: string, answerStr: string) => {
-      try {
-        const descObj = JSON.parse(answerStr);
-        const isVideo = isVideoDesc(descObj);
-        const pc = isVideo ? peersScreen.current[fromConnId] : peersAudio.current[fromConnId];
-        if (!pc) return;
-        // set remote
-        await pc.setRemoteDescription(new RTCSessionDescription(descObj));
-      } catch (err) {
-        console.warn('ReceiveAnswer error', err);
-      }
-    });
-
-    // ReceiveIceCandidate
-    connection.on('ReceiveIceCandidate', async (fromConnId: string, candidateStr: string) => {
-      try {
-        const candidate = JSON.parse(candidateStr);
-        const pcAudio = peersAudio.current[fromConnId];
-        const pcScreen = peersScreen.current[fromConnId];
-        if (pcAudio) await pcAudio.addIceCandidate(candidate);
-        if (pcScreen) await pcScreen.addIceCandidate(candidate);
-      } catch (err) {
-        console.warn('ReceiveIceCandidate error', err);
-      }
-    });
-
-    // Join room error
-    connection.on('JoinRoomError', (msg: string) => {
-      console.error('JoinRoomError from server:', msg);
-    });
-
-    init();
+    start();
 
     return () => {
-      connection.off('ExistingParticipants');
-      connection.off('ParticipantJoined');
-      connection.off('ParticipantLeft');
-      connection.off('AudioStateChanged');
-      connection.off('ScreenShareStateChanged');
-      connection.off('ReceiveOffer');
-      connection.off('ReceiveAnswer');
-      connection.off('ReceiveIceCandidate');
-      connection.off('JoinRoomError');
-
-      // close all peers
-      Object.values(peersAudio.current).forEach(pc => { try { pc.close(); } catch {} });
-      Object.values(peersScreen.current).forEach(pc => { try { pc.close(); } catch {} });
-      peersAudio.current = {};
-      peersScreen.current = {};
-      // stop local media
-      try { localAudioStream.current?.getTracks().forEach(t => t.stop()); } catch {}
-      try { localScreenStream.current?.getTracks().forEach(t => t.stop()); } catch {}
+      mounted = false;
+      try {
+        voiceHub.connection.off('ExistingParticipants');
+        voiceHub.connection.off('ParticipantJoined');
+        voiceHub.connection.off('ParticipantLeft');
+        voiceHub.connection.off('AudioStateChanged');
+        voiceHub.connection.off('ScreenShareStateChanged');
+        voiceHub.connection.off('ReceiveOffer');
+        voiceHub.connection.off('ReceiveAnswer');
+        voiceHub.connection.off('ReceiveIceCandidate');
+        voiceHub.connection.off('JoinRoomError');
+      } catch {}
+      // close peers and stop local tracks
+      audioPeers.current.forEach(pc => { try { pc.close(); } catch {} });
+      screenPeers.current.forEach(pc => { try { pc.close(); } catch {} });
+      audioPeers.current.clear();
+      screenPeers.current.clear();
+      if (localAudioStream.current) {
+        localAudioStream.current.getTracks().forEach(t => t.stop());
+        localAudioStream.current = null;
+      }
+      if (localScreenStream.current) {
+        localScreenStream.current.getTracks().forEach(t => t.stop());
+        localScreenStream.current = null;
+      }
+      if (analyserRef.current && rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentId, username, userId]);
+  }, [documentId, userId, username]);
 
-  // toggle mute locally + inform server (via ToggleAudio)
+  // ----------------- WebRTC helpers -----------------
+  const initLocalAudio = async () => {
+    try {
+      if (!localAudioStream.current) {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localAudioStream.current = s;
+
+        // analyser for speaking detection
+        try {
+          const ctx = new AudioContext();
+          const src = ctx.createMediaStreamSource(s);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 256;
+          src.connect(analyser);
+          analyserRef.current = analyser;
+          const data = new Uint8Array(analyser.frequencyBinCount);
+          const tick = () => {
+            analyser.getByteFrequencyData(data);
+            const sum = data.reduce((a, b) => a + b, 0);
+            const avg = sum / data.length;
+            // threshold tuned experimentally; adjust if necessary
+            const speaking = avg > 25 && !muted;
+            if (speaking) {
+              // mark local user speaking
+              setParticipants(prev => prev.map(p => p.userId === userId ? { ...p, speaking: true } : { ...p, speaking: false }));
+            } else {
+              setParticipants(prev => prev.map(p => p.userId === userId ? { ...p, speaking: false } : p));
+            }
+            rafRef.current = requestAnimationFrame(tick);
+          };
+          tick();
+        } catch (e) { console.warn('analyser init failed', e); }
+      }
+    } catch (err) {
+      console.error('getUserMedia audio error', err);
+    }
+  };
+
+  // create audio peer with a given remote connectionId
+  const createAudioPeer = async (remoteConnectionId: string, initiator: boolean): Promise<RTCPeerConnection> => {
+    // if exists, return it
+    const existing = audioPeers.current.get(remoteConnectionId);
+    if (existing) return existing;
+
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    });
+
+    audioPeers.current.set(remoteConnectionId, pc);
+
+    pc.onicecandidate = ev => {
+      if (ev.candidate) sendVoiceMessage('SendIceCandidate', [remoteConnectionId, JSON.stringify(ev.candidate)]);
+    };
+
+    pc.ontrack = ev => {
+      const stream = ev.streams[0] || new MediaStream([ev.track]);
+      // attach/create audio element
+      let el = remoteAudioEls.current.get(remoteConnectionId);
+      if (!el) {
+        el = document.createElement('audio');
+        el.autoplay = true;
+        el.controls = false;
+        el.style.display = 'none'; // hidden; playback happens silently
+        document.body.appendChild(el);
+        remoteAudioEls.current.set(remoteConnectionId, el);
+      }
+      el.srcObject = stream;
+    };
+
+    // add local audio track(s)
+    if (localAudioStream.current) {
+      localAudioStream.current.getTracks().forEach(t => pc.addTrack(t, localAudioStream.current!));
+    }
+
+    if (initiator) {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        // send offer to remote (target = remoteConnectionId)
+        await sendVoiceMessage('SendOffer', [remoteConnectionId, JSON.stringify(offer)]);
+      } catch (err) {
+        console.warn('createAudioPeer/offer error', err);
+      }
+    }
+
+    return pc;
+  };
+
+  // create screen peer (video only) with a given remote connectionId
+  const createScreenPeer = async (remoteConnectionId: string, initiator: boolean): Promise<RTCPeerConnection> => {
+    const existing = screenPeers.current.get(remoteConnectionId);
+    if (existing) return existing;
+
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    });
+    screenPeers.current.set(remoteConnectionId, pc);
+
+    pc.onicecandidate = ev => {
+      if (ev.candidate) sendVoiceMessage('SendIceCandidate', [remoteConnectionId, JSON.stringify(ev.candidate)]);
+    };
+
+    pc.ontrack = ev => {
+      const stream = ev.streams[0] || new MediaStream([ev.track]);
+      // attach/create video element
+      let v = remoteVideoEls.current.get(remoteConnectionId);
+      if (!v) {
+        v = document.createElement('video');
+        v.autoplay = true;
+        v.playsInline = true;
+        v.controls = false;
+        v.className = 'rounded-lg border mt-2';
+        // keep it off-DOM: we show requested stream in our UI via ref linking
+        document.body.appendChild(v);
+        remoteVideoEls.current.set(remoteConnectionId, v);
+      }
+      v.srcObject = stream;
+    };
+
+    // add local screen tracks (if we're sharing)
+    if (localScreenStream.current) {
+      localScreenStream.current.getTracks().forEach(t => pc.addTrack(t, localScreenStream.current!));
+    }
+
+    if (initiator) {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await sendVoiceMessage('SendOffer', [remoteConnectionId, JSON.stringify(offer)]);
+      } catch (err) {
+        console.warn('createScreenPeer/offer error', err);
+      }
+    }
+
+    return pc;
+  };
+
+  // --------------- Controls ------------------
   const toggleMute = async () => {
     if (!localAudioStream.current) return;
     const newMuted = !muted;
     localAudioStream.current.getAudioTracks().forEach(t => (t.enabled = !newMuted));
-    // also ensure senders tracks enabled
-    Object.values(peersAudio.current).forEach(pc =>
-      pc.getSenders().forEach(s => { if (s.track?.kind === 'audio') (s.track.enabled = !newMuted); })
-    );
     setMuted(newMuted);
-    // notify server: ToggleAudio(documentId, userId, MediaState)
+    // notify server (send Active/Inactive — server parses to enum)
     await sendVoiceMessage('ToggleAudio', [documentId, userId, newMuted ? 'Inactive' : 'Active']);
+    // update local participant state
+    setParticipants(prev => prev.map(p => (p.userId === userId ? { ...p, audioState: newMuted ? 'Inactive' : 'Active' } : p)));
   };
 
-  // toggle screen share
-  const toggleScreenShare = async () => {
-    if (!screenSharing) {
-      try {
-        const display = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        localScreenStream.current = display;
-        // add track(s) to existing screen peers or create peers
-        const videoTrack = display.getVideoTracks()[0];
-        for (const [connId, pc] of Object.entries(peersScreen.current)) {
-          const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-          if (sender) {
-            try { sender.replaceTrack(videoTrack); } catch { pc.addTrack(videoTrack, display); }
-          } else {
-            pc.addTrack(videoTrack, display);
-          }
+  const startScreenShare = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      localScreenStream.current = stream;
+      setScreenSharing(true);
+      // notify server state
+      await sendVoiceMessage('ToggleScreenShare', [documentId, userId, true]);
+
+      // create screen peer for each participant
+      participants.forEach(p => {
+        if (p.connectionId && p.userId !== userId && !screenPeers.current.has(p.connectionId)) {
+          createScreenPeer(p.connectionId, true).catch(e => console.warn('createScreenPeer error', e));
         }
-        // create peers to participants that don't have screen pc yet
-        participantsRef.current.forEach(p => {
-          if (p.userId !== userId && p.connectionId && !peersScreen.current[p.connectionId]) {
-            createScreenPeer(p.connectionId, true);
-          }
-        });
+      });
 
-        // also set up local preview in UI
-        setScreenSharing(true);
-        await sendVoiceMessage('ToggleScreenShare', [documentId, userId, true]);
-
-        // when screen stops
-        videoTrack.onended = async () => {
-          await stopScreenShare();
-        };
-      } catch (err) {
-        console.error('getDisplayMedia failed', err);
-      }
-    } else {
-      await stopScreenShare();
+      // when screen sharing stops locally, notify server and cleanup
+      const t = stream.getTracks()[0];
+      t.onended = async () => {
+        await stopScreenShare();
+      };
+    } catch (err) {
+      console.error('startScreenShare error', err);
     }
   };
 
@@ -452,91 +455,112 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       localScreenStream.current.getTracks().forEach(t => t.stop());
       localScreenStream.current = null;
     }
-    // remove video senders
-    for (const pc of Object.values(peersScreen.current)) {
-      pc.getSenders().forEach(s => { if (s.track?.kind === 'video') { try { s.track.stop(); } catch {} } });
-    }
     setScreenSharing(false);
     await sendVoiceMessage('ToggleScreenShare', [documentId, userId, false]);
-
-    // renegotiate peers so they drop m-lines if needed
-    for (const [targetId, pc] of Object.entries(peersScreen.current)) {
-      try {
-        if (pc.signalingState === 'stable') {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          await sendVoiceMessage('SendOffer', [targetId, JSON.stringify(pc.localDescription)]);
-        }
-      } catch (err) {
-        console.warn('renegotiate after stopScreen failed', err);
-      }
-    }
+    // close screen peers
+    screenPeers.current.forEach((pc, connId) => {
+      try { pc.close(); } catch {}
+      const v = remoteVideoEls.current.get(connId);
+      if (v) { v.srcObject = null; try { v.remove(); } catch {} }
+      remoteVideoEls.current.delete(connId);
+    });
+    screenPeers.current.clear();
+    if (viewingConnectionId) setViewingConnectionId(null);
   };
 
-  // view/unview someone's screen
-  const viewScreen = (connectionId: string) => {
-    setViewingConnectionId(prev => (prev === connectionId ? null : connectionId));
+  // viewing another user's screen: attach their hidden video element to our UI video tag
+  const attachRemoteVideoToRef = (connectionId: string, videoEl: HTMLVideoElement | null) => {
+    if (!videoEl) return;
+    const remoteVid = remoteVideoEls.current.get(connectionId);
+    if (remoteVid) videoEl.srcObject = remoteVid.srcObject;
+    else videoEl.srcObject = null;
   };
 
-  // UI render
+  // render
   return (
     <div className="flex flex-col h-full border rounded-lg bg-white shadow-inner p-3">
       <div className="font-semibold text-lg mb-3 border-b pb-1 text-gray-700">{documentTitle}</div>
 
-      {/* Participants box */}
-      <div className="flex-1 overflow-auto space-y-2 mb-2">
+      <div className="flex-1 overflow-auto space-y-2">
+        {participants.length === 0 && <div className="text-gray-500">В чате никого нет</div>}
         {participants.map(p => (
-          <div key={p.connectionId || p.userId} className={`p-2 rounded-md text-sm flex justify-between items-center ${p.audioState === 'Active' ? 'bg-white' : 'bg-gray-100 opacity-80'}`}>
-            <div className="flex items-center gap-3">
-              <span className="font-medium">{p.username || 'Unknown'}</span>
+          <div
+            key={p.connectionId || p.userId}
+            className={`p-2 rounded-md text-sm flex items-center justify-between ${
+              p.speaking ? 'bg-green-100 border border-green-400' : 'bg-gray-50'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <div className="text-sm font-medium">{p.username || `User ${p.userId}`}</div>
+              {p.audioState === 'Inactive' ? <MicOff size={14} className="text-red-500" /> : <Mic size={14} />}
+            </div>
+
+            <div className="flex items-center gap-2">
               {p.isScreenSharing && (
-                <button onClick={() => viewScreen(p.connectionId)} title={viewingConnectionId === p.connectionId ? 'Закрыть просмотр' : 'Просмотреть экран'} className="text-sm p-1">
+                <button
+                  onClick={() => setViewingConnectionId(prev => (prev === p.connectionId ? null : p.connectionId))}
+                  className="p-1 text-sm rounded hover:bg-gray-100"
+                >
                   <Monitor size={16} />
                 </button>
               )}
-            </div>
-            <div className="flex items-center gap-2">
-              {p.audioState === 'Inactive' ? <MicOff size={16} className="text-red-400" /> : <Mic size={16} />}
             </div>
           </div>
         ))}
       </div>
 
-      {/* screen viewer */}
+      {/* viewer for remote screen */}
       {viewingConnectionId && (
-        <div className="mb-2">
-          <div className="text-sm font-medium mb-1">Просмотр экрана</div>
-          <video ref={videoViewRef} autoPlay playsInline className="w-full rounded-lg border" />
+        <div className="mt-3">
+          <div className="mb-2 text-sm font-medium">Просмотр экрана</div>
+          <video
+            autoPlay
+            playsInline
+            muted
+            ref={el => {
+              attachRemoteVideoToRef(viewingConnectionId, el);
+            }}
+            className="w-full h-48 bg-black rounded-lg"
+          />
+          <button
+            onClick={() => setViewingConnectionId(null)}
+            className="mt-2 px-3 py-1 rounded bg-gray-200 text-sm"
+          >
+            Закрыть
+          </button>
         </div>
       )}
-
-      {/* local screen preview */}
-      {screenSharing && localScreenStream.current && (
-        <div className="mb-2">
-          <div className="text-sm font-medium mb-1">Вы транслируете экран (локально)</div>
-          <video ref={el => { if (el) { try { el.srcObject = localScreenStream.current!; } catch {} } }} autoPlay muted playsInline className="w-full rounded-lg border" />
-        </div>
-      )}
-
-      {/* hidden audio elements for remote audio */}
-      {remoteStreams.filter(r => r.type === 'audio').map(r => (
-        <audio
-          key={r.connectionId + '-a'}
-          ref={el => { if (el) { try { el.srcObject = r.stream; } catch {} } }}
-          autoPlay
-        />
-      ))}
 
       {/* controls */}
       <div className="flex justify-center gap-4 mt-3 pt-2 border-t">
-        <button onClick={toggleMute} title={muted ? 'Включить микрофон' : 'Выключить микрофон'} className="p-2 rounded-full hover:bg-gray-100 transition">
-          {muted ? <MicOff size={24} className="text-red-500" /> : <Mic size={24} />}
+        <button
+          onClick={toggleMute}
+          title={muted ? 'Включить микрофон' : 'Выключить микрофон'}
+          className={`p-2 rounded-full hover:bg-gray-100 transition ${muted ? 'bg-red-100' : 'bg-green-100'}`}
+        >
+          {muted ? <MicOff size={20} className="text-red-600" /> : <Mic size={20} className="text-green-600" />}
         </button>
 
-        <button onClick={toggleScreenShare} title={screenSharing ? 'Остановить трансляцию' : 'Начать трансляцию'} className="p-2 rounded-full hover:bg-gray-100 transition">
-          {screenSharing ? <Monitor size={24} className="text-red-500" /> : <MonitorOff size={24} />}
-        </button>
+        {!screenSharing ? (
+          <button
+            onClick={startScreenShare}
+            title="Начать трансляцию экрана"
+            className="p-2 rounded-full hover:bg-gray-100 transition bg-blue-100"
+          >
+            <MonitorOff size={20} />
+          </button>
+        ) : (
+          <button
+            onClick={stopScreenShare}
+            title="Остановить трансляцию экрана"
+            className="p-2 rounded-full hover:bg-gray-100 transition bg-yellow-100"
+          >
+            <Monitor size={20} />
+          </button>
+        )}
       </div>
     </div>
   );
 };
+
+export default VoiceChat;
