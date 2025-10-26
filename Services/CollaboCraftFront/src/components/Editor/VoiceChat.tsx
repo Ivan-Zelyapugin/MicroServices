@@ -162,28 +162,32 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         }
       });
 
-      // WebRTC signaling handlers from server (sender connectionId is first arg)
       conn.on('ReceiveOffer', async (fromConnectionId: string, offerSdp: string) => {
-        // Server forwards Context.ConnectionId as first arg (the remote connection id)
-        // Determine whether this offer is for audio or for screen:
-        // We expect on-screen offers the client created when screen sharing; to keep protocol simple,
-        // We will try to answer both: if we already have screenPeer for that connection, treat as screen, else audio.
-        // But prefer to check whether offer contains "m=video" to detect screen.
+
         try {
-          const sdpLower = (offerSdp || '').toLowerCase();
-          const isVideoOffer = sdpLower.includes('m=video') || sdpLower.includes('m=video');
+          console.log('Received offer SDP:', offerSdp);
+
+          const cleanedSdp = offerSdp.replace(/\\r\\n/g, '\r\n').trim();
+          if (!cleanedSdp.startsWith('v=')) {
+            console.error('Invalid SDP: does not start with v=', cleanedSdp);
+            return;
+          }
+
+          console.log('cleanedSdp:', cleanedSdp);
+          const isVideoOffer = cleanedSdp.toLowerCase().includes('m=video');
+          
           if (isVideoOffer) {
             const pc = await createScreenPeer(fromConnectionId, false);
             await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offerSdp }));
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            await sendVoiceMessage('SendAnswer', [fromConnectionId, JSON.stringify(answer)]);
+            await sendVoiceMessage('SendAnswer', [fromConnectionId, answer.sdp]);
           } else {
             const pc = await createAudioPeer(fromConnectionId, false);
             await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offerSdp }));
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            await sendVoiceMessage('SendAnswer', [fromConnectionId, JSON.stringify(answer)]);
+            await sendVoiceMessage('SendAnswer', [fromConnectionId, answer.sdp]);
           }
         } catch (err) {
           console.warn('ReceiveOffer handler error', err);
@@ -353,9 +357,10 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     if (initiator) {
       try {
         const offer = await pc.createOffer();
+        console.log('Sending offer SDP:', JSON.stringify(offer));
         await pc.setLocalDescription(offer);
         // send offer to remote (target = remoteConnectionId)
-        await sendVoiceMessage('SendOffer', [remoteConnectionId, JSON.stringify(offer)]);
+        await sendVoiceMessage('SendOffer', [remoteConnectionId, offer.sdp]);
       } catch (err) {
         console.warn('createAudioPeer/offer error', err);
       }
@@ -403,8 +408,9 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     if (initiator) {
       try {
         const offer = await pc.createOffer();
+        console.log('Sending offer SDP:', JSON.stringify(offer));
         await pc.setLocalDescription(offer);
-        await sendVoiceMessage('SendOffer', [remoteConnectionId, JSON.stringify(offer)]);
+        await sendVoiceMessage('SendOffer', [remoteConnectionId, offer.sdp]);
       } catch (err) {
         console.warn('createScreenPeer/offer error', err);
       }

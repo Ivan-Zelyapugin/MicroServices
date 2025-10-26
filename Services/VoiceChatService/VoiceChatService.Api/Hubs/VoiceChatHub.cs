@@ -135,23 +135,55 @@ namespace VoiceChatService.Api.Hubs
 
         public async Task SendOffer(string targetConnectionId, string offer)
         {
-            Console.WriteLine($"[SendOffer] From={Context.ConnectionId} To={targetConnectionId}");
-            await Clients.Client(targetConnectionId)
-                .SendAsync("ReceiveOffer", Context.ConnectionId, offer);
+            Console.WriteLine($"[SendOffer] From={Context.ConnectionId} To={targetConnectionId}, Offer={offer}");
+            try
+            {
+                var offerObj = JsonSerializer.Deserialize<Dictionary<string, string>>(offer);
+                var sdp = offerObj?["sdp"] ?? offer; // Если не JSON, используем как есть
+                await Clients.Client(targetConnectionId)
+                    .SendAsync("ReceiveOffer", Context.ConnectionId, sdp);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SendOffer] Error parsing offer: {ex.Message}");
+                await Clients.Client(targetConnectionId)
+                    .SendAsync("ReceiveOffer", Context.ConnectionId, offer); // Фоллбэк
+            }
         }
 
         public async Task SendAnswer(string targetConnectionId, string answer)
         {
-            Console.WriteLine($"[SendAnswer] From={Context.ConnectionId} To={targetConnectionId}");
-            await Clients.Client(targetConnectionId)
-                .SendAsync("ReceiveAnswer", Context.ConnectionId, answer);
+            Console.WriteLine($"[SendAnswer] From={Context.ConnectionId} To={targetConnectionId}, Answer={answer}");
+            try
+            {
+                var answerObj = JsonSerializer.Deserialize<Dictionary<string, string>>(answer);
+                var sdp = answerObj?["sdp"] ?? answer;
+                await Clients.Client(targetConnectionId)
+                    .SendAsync("ReceiveAnswer", Context.ConnectionId, sdp);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SendAnswer] Error parsing answer: {ex.Message}");
+                await Clients.Client(targetConnectionId)
+                    .SendAsync("ReceiveAnswer", Context.ConnectionId, answer);
+            }
         }
 
         public async Task SendIceCandidate(string targetConnectionId, string candidate)
         {
-            Console.WriteLine($"[SendIceCandidate] From={Context.ConnectionId} To={targetConnectionId}");
-            await Clients.Client(targetConnectionId)
-                .SendAsync("ReceiveIceCandidate", Context.ConnectionId, candidate);
+            Console.WriteLine($"[SendIceCandidate] From={Context.ConnectionId} To={targetConnectionId}, Candidate={candidate}");
+            try
+            {
+                var candidateObj = JsonSerializer.Deserialize<Dictionary<string, object>>(candidate);
+                await Clients.Client(targetConnectionId)
+                    .SendAsync("ReceiveIceCandidate", Context.ConnectionId, candidateObj);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SendIceCandidate] Error parsing candidate: {ex.Message}");
+                await Clients.Client(targetConnectionId)
+                    .SendAsync("ReceiveIceCandidate", Context.ConnectionId, candidate);
+            }
         }
 
         public override async Task OnDisconnectedAsync(Exception? exception)
