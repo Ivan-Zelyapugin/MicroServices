@@ -174,17 +174,16 @@ namespace VoiceChatService.Api.Hubs
             Console.WriteLine($"[SendIceCandidate] From={Context.ConnectionId} To={targetConnectionId}, Candidate={candidate}");
             try
             {
-                var candidateObj = JsonSerializer.Deserialize<Dictionary<string, object>>(candidate);
-                await Clients.Client(targetConnectionId)
-                    .SendAsync("ReceiveIceCandidate", Context.ConnectionId, candidateObj);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[SendIceCandidate] Error parsing candidate: {ex.Message}");
+                // Просто пересылаем строку JSON дальше
                 await Clients.Client(targetConnectionId)
                     .SendAsync("ReceiveIceCandidate", Context.ConnectionId, candidate);
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SendIceCandidate] Error: {ex.Message}");
+            }
         }
+
 
         public override async Task OnDisconnectedAsync(Exception? exception)
         {

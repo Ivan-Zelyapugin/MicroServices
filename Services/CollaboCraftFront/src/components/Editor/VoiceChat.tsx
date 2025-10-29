@@ -179,12 +179,18 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           if (isVideoOffer) {
             const pc = await createScreenPeer(fromConnectionId, false);
             await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offerSdp }));
+            console.log("✅ Remote description set successfully");
+
+            console.log(`📨 Setting remote description (type=${isVideoOffer ? "video" : "audio"}) for`, fromConnectionId);
+
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             await sendVoiceMessage('SendAnswer', [fromConnectionId, answer.sdp]);
           } else {
             const pc = await createAudioPeer(fromConnectionId, false);
             await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offerSdp }));
+            console.log("✅ Remote description set successfully");
+
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             await sendVoiceMessage('SendAnswer', [fromConnectionId, answer.sdp]);
@@ -199,12 +205,20 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         try {
           const pcA = audioPeers.current.get(fromConnectionId);
           if (pcA && pcA.signalingState === 'have-local-offer') {
+            console.log(`📨 Setting remote description for`, fromConnectionId);
+
             await pcA.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }));
+            console.log("✅ Remote description set successfully");
+
             return;
           }
           const pcV = screenPeers.current.get(fromConnectionId);
           if (pcV && pcV.signalingState === 'have-local-offer') {
+            console.log(`📨 ReceiveAnswer from ${fromConnectionId}`, answerSdp.slice(0, 80) + "...");
+
             await pcV.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }));
+            console.log("✅ Remote description set successfully");
+
             return;
           }
         } catch (err) {
@@ -213,18 +227,30 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       });
 
       conn.on('ReceiveIceCandidate', async (fromConnectionId: string, candidateJson: string) => {
+        console.log("📩 ReceiveIceCandidate:", candidateJson);
         try {
-          console.log("Received ICE candidate from signaling:", candidateJson);
           const cand = JSON.parse(candidateJson);
           const ice = new RTCIceCandidate(cand);
+          console.log("🧩 Parsed ICE candidate:", ice);
+
           const pcA = audioPeers.current.get(fromConnectionId);
-          if (pcA) { await pcA.addIceCandidate(ice); return; }
+          if (pcA) {
+            await pcA.addIceCandidate(ice);
+            console.log("✅ Added ICE candidate to audio peer");
+            return;
+          }
           const pcV = screenPeers.current.get(fromConnectionId);
-          if (pcV) { await pcV.addIceCandidate(ice); return; }
+          if (pcV) {
+            await pcV.addIceCandidate(ice);
+            console.log("✅ Added ICE candidate to screen peer");
+            return;
+          }
+          console.warn("⚠️ No peer found for ICE candidate", fromConnectionId);
         } catch (err) {
-          console.warn('ReceiveIceCandidate error', err);
+          console.error("❌ Error in ReceiveIceCandidate", err);
         }
       });
+
     };
 
     const start = async () => {
@@ -284,6 +310,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   // ----------------- WebRTC helpers -----------------
   const initLocalAudio = async () => {
     try {
+      console.log("🎤 initLocalAudio(): starting getUserMedia({audio:true})");
       if (!localAudioStream.current) {
         const s = await navigator.mediaDevices.getUserMedia({ audio: true });
         localAudioStream.current = s;
@@ -305,7 +332,10 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
             const speaking = avg > 25 && !muted;
             if (speaking) {
               // mark local user speaking
+              
               setParticipants(prev => prev.map(p => p.userId === userId ? { ...p, speaking: true } : { ...p, speaking: false }));
+              console.log("🎤 Local audio tracks:", s.getTracks().map(t => ({ id: t.id, enabled: t.enabled, kind: t.kind })));
+
             } else {
               setParticipants(prev => prev.map(p => p.userId === userId ? { ...p, speaking: false } : p));
             }
@@ -322,38 +352,58 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   // create audio peer with a given remote connectionId
   const createAudioPeer = async (remoteConnectionId: string, initiator: boolean): Promise<RTCPeerConnection> => {
     // if exists, return it
+    console.log(`🔗 createAudioPeer(${remoteConnectionId}, initiator=${initiator})`);
+
     const existing = audioPeers.current.get(remoteConnectionId);
     if (existing) return existing;
 
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    });
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+  iceTransportPolicy: "all"
+});
+    console.log("🧩 New RTCPeerConnection for audio created", pc);
 
     audioPeers.current.set(remoteConnectionId, pc);
 
     pc.onicecandidate = ev => {
-      console.log("ICE candidate:", ev.candidate);
-      if (ev.candidate)
-        {
-          sendVoiceMessage('SendIceCandidate', [remoteConnectionId, JSON.stringify(ev.candidate)]);
-          console.log("SendIceCandidate to signaling:", ev.candidate);
-          console.log("Sending ICE candidate via signaling:", ev.candidate.candidate);
-        } 
-        else{
-          console.log("ICE candidate gathering complete");
-        }
+      console.log(`🧊 [${remoteConnectionId}] New ICE candidate:`, ev.candidate);
+
+      if (!ev.candidate) {
+        console.log("ICE candidate gathering complete");
+        return;
+      }
+
+      console.log("🌍 ICE candidate generated:", ev.candidate);
+      // Отправляем только нужные поля (чистый объект)
+      const cand = {
+        candidate: ev.candidate.candidate,
+        sdpMid: ev.candidate.sdpMid,
+        sdpMLineIndex: ev.candidate.sdpMLineIndex,
+      };
+
+      const candJson = JSON.stringify(cand);
+      sendVoiceMessage('SendIceCandidate', [remoteConnectionId, candJson]);
+      console.log("📤 Sent ICE candidate via signaling:", ev.candidate.candidate);
     };
 
+
     pc.oniceconnectionstatechange = () => {
-  console.log("ICE connection state:", pc.iceConnectionState);
+  console.log(`🧭 [${remoteConnectionId}] ICE connection state:`, pc.iceConnectionState);
 };
 
-pc.onsignalingstatechange = () => {
-  console.log("Signaling state:", pc.signalingState);
+
+    pc.onsignalingstatechange = () => {
+  console.log(`📡 [${remoteConnectionId}] Signaling state:`, pc.signalingState);
 };
+
+pc.onconnectionstatechange = () => {
+  console.log(`⚡ [${remoteConnectionId}] Connection state:`, pc.connectionState);
+};
+
 
     pc.ontrack = ev => {
-      const stream = ev.streams[0] || new MediaStream([ev.track]);
+      console.log(`🎧 [${remoteConnectionId}] ontrack fired with ${ev.streams.length} stream(s)`);
+      const stream = ev.streams[0];
       // attach/create audio element
       let el = remoteAudioEls.current.get(remoteConnectionId);
       if (!el) {
@@ -365,8 +415,13 @@ pc.onsignalingstatechange = () => {
         remoteAudioEls.current.set(remoteConnectionId, el);
       }
       el.srcObject = stream;
-    };
+      console.log(`🎶 [${remoteConnectionId}] Audio element srcObject set, autoplay=${el.autoplay}`);
+el.onplay = () => console.log(`▶️ [${remoteConnectionId}] Remote audio started playing`);
+el.onpause = () => console.log(`⏸ [${remoteConnectionId}] Remote audio paused`);
+el.onerror = e => console.warn(`⚠️ [${remoteConnectionId}] Audio element error`, e);
 
+    };
+    
     // add local audio track(s)
     if (localAudioStream.current) {
       localAudioStream.current.getTracks().forEach(t => pc.addTrack(t, localAudioStream.current!));
@@ -393,13 +448,31 @@ pc.onsignalingstatechange = () => {
     if (existing) return existing;
 
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    });
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+  iceTransportPolicy: "all"
+});
     screenPeers.current.set(remoteConnectionId, pc);
 
     pc.onicecandidate = ev => {
-      if (ev.candidate) sendVoiceMessage('SendIceCandidate', [remoteConnectionId, JSON.stringify(ev.candidate)]);
-    };
+      console.log(`🧊 [${remoteConnectionId}] New ICE candidate:`, ev.candidate);
+
+  if (!ev.candidate) {
+    console.log("ICE candidate gathering complete");
+    return;
+  }
+
+  // Отправляем только нужные поля (чистый объект)
+  const cand = {
+    candidate: ev.candidate.candidate,
+    sdpMid: ev.candidate.sdpMid,
+    sdpMLineIndex: ev.candidate.sdpMLineIndex,
+  };
+
+  const candJson = JSON.stringify(cand);
+  sendVoiceMessage('SendIceCandidate', [remoteConnectionId, candJson]);
+  console.log("SendIceCandidate to signaling:", cand);
+};
+
 
     pc.ontrack = ev => {
       const stream = ev.streams[0] || new MediaStream([ev.track]);
