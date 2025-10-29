@@ -41,8 +41,8 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   const localScreenStream = useRef<MediaStream | null>(null);
 
   // separate peer maps
-  const audioPeers = useRef<Map<string, RTCPeerConnection>>(new Map()); // key: remote connectionId
-  const screenPeers = useRef<Map<string, RTCPeerConnection>>(new Map()); // key: remote connectionId
+  const audioPeers = useRef<Map<string, RTCPeerConnection>>(new Map()); 
+  const screenPeers = useRef<Map<string, RTCPeerConnection>>(new Map()); 
 
   // remote media elements refs
   const remoteAudioEls = useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -214,6 +214,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
       conn.on('ReceiveIceCandidate', async (fromConnectionId: string, candidateJson: string) => {
         try {
+          console.log("Received ICE candidate from signaling:", candidateJson);
           const cand = JSON.parse(candidateJson);
           const ice = new RTCIceCandidate(cand);
           const pcA = audioPeers.current.get(fromConnectionId);
@@ -331,8 +332,25 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     audioPeers.current.set(remoteConnectionId, pc);
 
     pc.onicecandidate = ev => {
-      if (ev.candidate) sendVoiceMessage('SendIceCandidate', [remoteConnectionId, JSON.stringify(ev.candidate)]);
+      console.log("ICE candidate:", ev.candidate);
+      if (ev.candidate)
+        {
+          sendVoiceMessage('SendIceCandidate', [remoteConnectionId, JSON.stringify(ev.candidate)]);
+          console.log("SendIceCandidate to signaling:", ev.candidate);
+          console.log("Sending ICE candidate via signaling:", ev.candidate.candidate);
+        } 
+        else{
+          console.log("ICE candidate gathering complete");
+        }
     };
+
+    pc.oniceconnectionstatechange = () => {
+  console.log("ICE connection state:", pc.iceConnectionState);
+};
+
+pc.onsignalingstatechange = () => {
+  console.log("Signaling state:", pc.signalingState);
+};
 
     pc.ontrack = ev => {
       const stream = ev.streams[0] || new MediaStream([ev.track]);
