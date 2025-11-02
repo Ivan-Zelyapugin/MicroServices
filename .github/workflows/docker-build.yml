@@ -30,8 +30,8 @@ jobs:
       - name: Build and push AuthService
         uses: docker/build-push-action@v6
         with:
-          context: ./MicroServices/Services/AuthService
-          file: ./MicroServices/Services/AuthService/Dockerfile
+          context: ./Services/AuthService
+          file: ./Services/AuthService/Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.USERNAME }}/authservice:latest
@@ -41,8 +41,8 @@ jobs:
       - name: Build and push EmailService
         uses: docker/build-push-action@v6
         with:
-          context: ./MicroServices/Services/EmailService
-          file: ./MicroServices/Services/EmailService/Dockerfile
+          context: ./Services/EmailService
+          file: ./Services/EmailService/Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.USERNAME }}/emailservice:latest
@@ -52,8 +52,8 @@ jobs:
       - name: Build and push DocumentService
         uses: docker/build-push-action@v6
         with:
-          context: ./MicroServices/Services/DocumentService
-          file: ./MicroServices/Services/DocumentService/Dockerfile
+          context: ./Services/DocumentService
+          file: ./Services/DocumentService/Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.USERNAME }}/documentservice:latest
@@ -63,8 +63,8 @@ jobs:
       - name: Build and push BlockService
         uses: docker/build-push-action@v6
         with:
-          context: ./MicroServices/Services/BlockService
-          file: ./MicroServices/Services/BlockService/Dockerfile
+          context: ./Services/BlockService
+          file: ./Services/BlockService/Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.USERNAME }}/blockservice:latest
@@ -74,8 +74,8 @@ jobs:
       - name: Build and push VoiceChatService
         uses: docker/build-push-action@v6
         with:
-          context: ./MicroServices/Services/VoiceChatService
-          file: ./MicroServices/Services/VoiceChatService/Dockerfile
+          context: ./Services/VoiceChatService
+          file: ./Services/VoiceChatService/Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.USERNAME }}/voiceservice:latest
@@ -85,8 +85,8 @@ jobs:
       - name: Build and push Database Migrator
         uses: docker/build-push-action@v6
         with:
-          context: ./MicroServices/Services/Database
-          file: ./MicroServices/Services/Database/Dockerfile
+          context: ./Services/Database
+          file: ./Services/Database/Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.USERNAME }}/database-migrator:latest
