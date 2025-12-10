@@ -1,0 +1,15 @@
+@startuml C4ContextDemo
+
+' Прямые линии / ортогональные
+skinparam linetype ortho
+skinparam spline polyline
+
+' C4 макросы
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+Person(user, "User", "Пользователь системы")
+System(system, "My System", "Главная система")
+
+Rel(user, system, "Использует")
+
+@enduml

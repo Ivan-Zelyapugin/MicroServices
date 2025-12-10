@@ -2,21 +2,18 @@
 FROM node:20 AS build
 WORKDIR /app
 
-# копируем package.json и package-lock.json
 COPY package*.json ./
 RUN npm install
 
-# копируем весь проект и собираем
 COPY . .
 RUN npm run build
 
-# Этап запуска (nginx отдаёт собранный фронт)
-FROM nginx:alpine
-WORKDIR /usr/share/nginx/html
+# Этап отдачи статики — Traefik сам отдаёт через file server
+FROM alpine:3.19
+WORKDIR /static
+
+# Копируем собраный фронт
 COPY --from=build /app/build .
 
-# добавляем конфиг для SPA (чтобы работали роуты React)
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 80
+# dummy entrypoint (контейнер просто хранит файлы)
 CMD ["nginx", "-g", "daemon off;"]

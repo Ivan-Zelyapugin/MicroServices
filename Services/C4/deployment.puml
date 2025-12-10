@@ -1,0 +1,26 @@
+@startuml te
+skinparam rectangle {
+  BackgroundColor #F9F9F9
+  BorderColor #333333
+}
+
+rectangle "Client Device" <<node>> {
+  rectangle "«Execution environment»\nWEB-браузер"
+  
+  rectangle "«artifact»\nReact SPA" {
+    component "Tiptap Editor" #white
+    component "SignalR Client" #white
+    component "API Layer" #white
+  }
+}
+
+' --- Внешние зависимости (не входят в клиент, но с ними он взаимодействует)
+note right of Client_Device
+  Клиентский код:
+  - React + TypeScript
+  - Tiptap для редактирования
+  - SignalR для реального времени
+  - Axios/Fetch для REST API
+end note
+
+@enduml

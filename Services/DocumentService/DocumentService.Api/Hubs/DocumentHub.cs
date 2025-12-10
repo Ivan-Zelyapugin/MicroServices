@@ -1,4 +1,4 @@
-﻿using DocumentService.Api.HubMetrics; // подключаем наши метрики
+﻿using DocumentService.Api.HubMetrics; 
 using DocumentService.DataAccess.Models;
 using DocumentService.DataAccess.Repositories.Interfaces;
 using DocumentService.Models.Document;
