@@ -1,0 +1,22 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+skinparam linetype ortho
+
+Title CollaboCraft - Container Diagram (C2)
+
+Person(client, "Клиент", "Пользователь системы: создатель, редактор, наблюдатель")
+
+System_Boundary(collabocraft, "CollaboCraft") {
+    Container(frontend, "Web Application", "React SPA", "Интерфейс для пользователей и администраторов")
+    Container(backend, "Backend Service", "C#, ASP.NET Core", "Обрабатывает бизнес-логику, содержит API и WebSocket")
+}
+
+System_Ext(minio, "MinIO", "Внешнее хранилище файлов")
+System_Ext(smtp, "SMTP", "Сервер email-уведомлений")
+
+Rel(client, frontend, "Использует", "HTTP")
+Rel(frontend, backend, "Отправляет запросы", "HTTP/WebSocket")
+Rel(backend, minio, "Хранит файлы", "S3 API")
+Rel(backend, smtp, "Отправляет письма", "SMTP")
+@enduml

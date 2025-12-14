@@ -22,6 +22,7 @@ builder.Services.AddRepositories();
 builder.Services.AddServices();
 builder.Services.AddSingleton<IKafkaProducer, KafkaProducer>();
 builder.Services.AddScoped<ICodeRepository, RedisCodeRepository>();
+builder.Services.AddJwtAuth(builder.Configuration);
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 {

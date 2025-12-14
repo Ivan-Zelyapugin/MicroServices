@@ -8,6 +8,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
+
 namespace AuthService.DataAcces.Repositories.Scripts {
     using System;
     
@@ -65,6 +66,22 @@ namespace AuthService.DataAcces.Repositories.Scripts {
             get
             {
                 return ResourceManager.GetString("ConfirmEmail", resourceCulture);
+            }
+        }
+
+        internal static string UpdateUser
+        {
+            get
+            {
+                return ResourceManager.GetString("UpdateUser", resourceCulture);
+            }
+        }
+
+        internal static string ChangePassword
+        {
+            get
+            {
+                return ResourceManager.GetString("ChangePassword", resourceCulture);
             }
         }
 

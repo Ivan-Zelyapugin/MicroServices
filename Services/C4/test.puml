@@ -1,3 +1,15 @@
-@startuml TestDiagram
-Alice -> Bob : Hi
+@startuml
+skinparam componentStyle uml2
+skinparam linetype ortho
+
+component "Auth Service" as auth
+component "PostgreSQL" as db
+
+interface IUserRepository
+interface SqlStorage
+
+auth ..> IUserRepository : provides
+db ..> SqlStorage : provides
+
+auth ..> SqlStorage : requires
 @enduml
