@@ -358,10 +358,8 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     if (existing) return existing;
 
     const pc = new RTCPeerConnection({
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-  iceTransportPolicy: "all"
-});
-    console.log("🧩 New RTCPeerConnection for audio created", pc);
+      iceServers: [{ urls: 'stun:stun.l.google.com:19303' }],
+    });
 
     audioPeers.current.set(remoteConnectionId, pc);
 

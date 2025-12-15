@@ -4,8 +4,6 @@ using MailKit.Net.Smtp;
 using MailKit.Security;
 using Microsoft.Extensions.Configuration;
 using MimeKit;
-using System;
-using System.IO;
 
 public class SmtpEmailSender : IEmailSender
 {
@@ -41,25 +39,25 @@ public class SmtpEmailSender : IEmailSender
             using var smtp = new SmtpClient(logger);
             smtp.Timeout = 20000;
 
-            Console.WriteLine($"🔌 Подключаюсь к {_host}:{_port} (STARTTLS)...");
+            Console.WriteLine($"Подключаюсь к {_host}:{_port} (STARTTLS)...");
 
             await smtp.ConnectAsync(_host, _port, SecureSocketOptions.SslOnConnect);
 
-            Console.WriteLine("✅ Подключение установлено, пробую логин...");
+            Console.WriteLine("Подключение установлено, пробую логин...");
 
             smtp.AuthenticationMechanisms.Remove("XOAUTH2");
             await smtp.AuthenticateAsync(_username, _password);
 
-            Console.WriteLine("🎉 Успешная аутентификация!");
+            Console.WriteLine("Успешная аутентификация!");
 
             await smtp.SendAsync(email);
             await smtp.DisconnectAsync(true);
 
-            Console.WriteLine($"📧 Письмо успешно отправлено на {to}");
+            Console.WriteLine($"Письмо успешно отправлено на {to}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Ошибка при отправке письма: {ex}");
+            Console.WriteLine($"Ошибка при отправке письма: {ex}");
             throw;
         }
     }

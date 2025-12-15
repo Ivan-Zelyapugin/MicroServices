@@ -1,0 +1,93 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  REGISTRY: docker.io
+  USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # --- AuthService ---
+      - name: Build and push AuthService
+        uses: docker/build-push-action@v6
+        with:
+          context: ./Services/AuthService
+          file: ./Services/AuthService/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.USERNAME }}/authservice:latest
+            ${{ env.REGISTRY }}/${{ env.USERNAME }}/authservice:${{ github.sha }}
+
+      # --- EmailService ---
+      - name: Build and push EmailService
+        uses: docker/build-push-action@v6
+        with:
+          context: ./Services/EmailService
+          file: ./Services/EmailService/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.USERNAME }}/emailservice:latest
+            ${{ env.REGISTRY }}/${{ env.USERNAME }}/emailservice:${{ github.sha }}
+
+      # --- DocumentService ---
+      - name: Build and push DocumentService
+        uses: docker/build-push-action@v6
+        with:
+          context: ./Services/DocumentService
+          file: ./Services/DocumentService/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.USERNAME }}/documentservice:latest
+            ${{ env.REGISTRY }}/${{ env.USERNAME }}/documentservice:${{ github.sha }}
+
+      # --- BlockService ---
+      - name: Build and push BlockService
+        uses: docker/build-push-action@v6
+        with:
+          context: ./Services/BlockService
+          file: ./Services/BlockService/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.USERNAME }}/blockservice:latest
+            ${{ env.REGISTRY }}/${{ env.USERNAME }}/blockservice:${{ github.sha }}
+
+      # --- VoiceChatService ---
+      - name: Build and push VoiceChatService
+        uses: docker/build-push-action@v6
+        with:
+          context: ./Services/VoiceChatService
+          file: ./Services/VoiceChatService/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.USERNAME }}/voiceservice:latest
+            ${{ env.REGISTRY }}/${{ env.USERNAME }}/voiceservice:${{ github.sha }}
+
+      # --- Database Migrator ---
+      - name: Build and push Database Migrator
+        uses: docker/build-push-action@v6
+        with:
+          context: ./Services/Database
+          file: ./Services/Database/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.USERNAME }}/database-migrator:latest
+            ${{ env.REGISTRY }}/${{ env.USERNAME }}/database-migrator:${{ github.sha }}

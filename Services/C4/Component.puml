@@ -1,0 +1,49 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+skinparam linetype ortho
+
+Title CollaboCraft - Container Diagram
+
+Person(client, "Клиент", "Пользователь системы: создатель, редактор, наблюдатель")
+
+System_Boundary(collabocraft, "CollaboCraft") {
+    Container(nginx, "NGINX", "nginx", "Обратный прокси и раздача статики")
+    Container(frontend, "Frontend", "React", "SPA-приложение в браузере")
+
+    Container(auth, "Auth Service", "C#, ASP.NET Core", "Авторизация и управление пользователями")
+    Container(doc, "Document Service", "C#, ASP.NET Core", "Управление документами и правами доступа")
+    Container(block, "Block Service", "C#, ASP.NET Core", "Управление блоками документа")
+    Container(email, "Email Service", "C#, ASP.NET Core", "Отправка email-уведомлений")
+
+    ContainerQueue(kafka, "Kafka", "Apache Kafka", "Шина событий для асинхронного обмена")
+
+    ContainerDb(db, "PostgreSQL", "postgres:15", "Хранение данных приложения")
+    ContainerDb(redis, "Redis", "redis:7", "Временные данные (коды, состояние)")
+}
+
+System_Ext(minio, "MinIO", "Хранение файлов и изображений")
+System_Ext(smtp, "SMTP-сервер", "Отправка email")
+
+' --- Связи ---
+Rel(client, frontend, "Использует", "HTTP")
+Rel(frontend, nginx, "Обращается", "HTTP")
+
+Rel(nginx, auth, "Проксирует", "HTTP")
+Rel(nginx, doc, "Проксирует", "HTTP/WebSocket")
+Rel(nginx, block, "Проксирует", "HTTP/WebSocket")
+
+Rel(auth, db, "Читает/пишет", "SQL")
+Rel(doc, db, "Читает/пишет", "SQL")
+Rel(block, db, "Читает/пишет", "SQL")
+
+Rel(auth, redis, "Хранит временные коды", "Redis protocol")
+
+Rel(doc, minio, "Хранит файлы", "S3 API")
+
+Rel(email, smtp, "Отправляет письма", "SMTP")
+
+Rel(auth, kafka, "Публикует событие\n«UserRegistered»", "Kafka")
+Rel(kafka, email, "Доставляет событие", "Kafka")
+
+@enduml

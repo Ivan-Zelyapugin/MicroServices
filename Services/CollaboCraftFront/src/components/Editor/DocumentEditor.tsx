@@ -290,26 +290,8 @@ export const DocumentEditor: React.FC = () => {
       </main>
     </div>
 
-    {/* 🎙 Плавающая панель голосового чата */}
-    {documentId && (
-      <div
-        id="voice-chat-panel"
-        className="
-          fixed right-6 bottom-6 
-          w-80 h-96 
-          bg-white shadow-2xl border border-gray-200 
-          rounded-xl p-4 z-50 cursor-move 
-          resize overflow-auto
-        "
-      >
-        <VoiceChat
-  documentId={Number(documentId)}
-  username={currentUser?.name || localStorage.getItem('username') || 'User'}
-  userId={currentUser?.id || 0}
-  documentTitle={documentTitle}
-/>
-      </div>
-    )}
+    
+    
   </div>
 );
 

@@ -30,7 +30,6 @@ namespace EmailService.Infrastructure.Messaging
 
         protected override Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            // ⚡ запускаем консумер в отдельном фоне
             Task.Run(() => ConsumeLoop(stoppingToken), stoppingToken);
 
             return Task.CompletedTask;
@@ -61,11 +60,11 @@ namespace EmailService.Infrastructure.Messaging
                                 $"Ваш код подтверждения: {evt.Code}"
                             );
 
-                            Console.WriteLine($"📧 Код {evt.Code} отправлен на {evt.Email}");
+                            Console.WriteLine($"Код {evt.Code} отправлен на {evt.Email}");
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"❌ Ошибка при отправке письма: {ex.Message}");
+                            Console.WriteLine($"Ошибка при отправке письма: {ex.Message}");
                         }
                     }
                 }

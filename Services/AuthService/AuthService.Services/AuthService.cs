@@ -35,7 +35,7 @@ namespace AuthService.Services
                 throw new InvalidInputException("Пароли не совпадают.");
 
             var existingByUsername = await userRepository.IsUserExistsByUsername(registerModel.Username);
-            var existingByEmail = await userRepository.IsUserExistsByEmail(registerModel.Username);
+            var existingByEmail = await userRepository.IsUserExistsByEmail(registerModel.Email);
             var user = await userRepository.GetUserByLogin(registerModel.Username);
 
             if (user != null)

@@ -53,9 +53,6 @@ namespace DocumentService.Services
                     });
                 }
 
-
-
-
                 await documentParticipantRepository.CreateDocumentParticipants(documentParticipants, transaction);
                 transaction.Commit();
 
