@@ -12,16 +12,11 @@ System_Boundary(collabocraft, "CollaboCraft") {
     Container(backend, "Backend Service", "C#, ASP.NET Core", "Обрабатывает бизнес-логику, содержит API и WebSocket")
 }
 
-System_Ext(prometheus, "Prometheus", "Сборщик метрик")
-System_Ext(grafana, "Grafana", "Отображение метрик")
 System_Ext(minio, "MinIO", "Внешнее хранилище файлов")
 System_Ext(smtp, "SMTP", "Сервер email-уведомлений")
 
 Rel(client, frontend, "Использует", "HTTP")
 Rel(frontend, backend, "Отправляет запросы", "HTTP/WebSocket")
 Rel(backend, minio, "Хранит файлы", "S3 API")
-Rel(prometheus, backend, "Собирает данные", "")
-Rel(grafana, prometheus, "Отображает данные", "")
-
 Rel(backend, smtp, "Отправляет письма", "SMTP")
 @enduml

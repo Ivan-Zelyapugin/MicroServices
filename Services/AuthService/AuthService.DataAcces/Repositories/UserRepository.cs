@@ -3,11 +3,22 @@ using AuthService.DataAcces.Dapper.Models;
 using AuthService.DataAcces.Models;
 using AuthService.DataAcces.Repositories.Interfaces;
 using AuthService.DataAcces.Repositories.Scripts;
+using AuthService.Models;
 
 namespace AuthService.DataAcces.Repositories
 {
     public class UserRepository(IDapperContext<IDapperSettings> dapperContext) : IUserRepository
     {
+        public async Task UpdateUser(UpdateUserRequest user)
+        {
+            await dapperContext.Command(new QueryObject(Sql.UpdateUser, user));
+        }
+
+        public async Task ChangePassword(int userId, string passwordHash)
+        {
+            await dapperContext.Command(new QueryObject(Sql.ChangePassword, new { userId, passwordHash }));
+        }
+
         public async Task<bool> IsUserExistsByUsername(string username)
         {
             return await dapperContext.FirstOrDefault<bool>(new QueryObject(Sql.IsUserExistsByUsername, new { username }));

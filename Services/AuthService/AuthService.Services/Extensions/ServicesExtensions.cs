@@ -9,7 +9,8 @@ namespace AuthService.Services.Extensions
         {
             return services
                 .AddScoped<ITokenService, TokenService>()
-                .AddScoped<IAuthService, AuthService>();
+                .AddScoped<IAuthService, AuthService>()
+                .AddScoped<IUserService, UserService>();
         }
     }
 }

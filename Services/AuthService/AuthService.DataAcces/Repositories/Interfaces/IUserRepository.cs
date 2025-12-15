@@ -1,10 +1,13 @@
 ﻿using AuthService.DataAcces.Dapper.Interfaces;
 using AuthService.DataAcces.Models;
+using AuthService.Models;
 
 namespace AuthService.DataAcces.Repositories.Interfaces
 {
     public interface IUserRepository
     {
+        Task UpdateUser(UpdateUserRequest request);
+        Task ChangePassword(int userId, string passwordHash);
         Task<bool> IsUserExistsByUsername(string username);
         Task<bool> IsUserExistsByEmail(string email);
         Task<int> CreateUser(DbUser user);
