@@ -6,9 +6,10 @@ namespace BlockService.Models.Permission
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum DocumentRole
     {
-        User    = 0,
-        Viewer  = 1,
-        Editor  = 2,
-        Creator = 3
+        Viewer = 0,
+        Editor = 1,
+        Admin = 2,
+        Creator = 3,
+        User = 4
     }
 }
