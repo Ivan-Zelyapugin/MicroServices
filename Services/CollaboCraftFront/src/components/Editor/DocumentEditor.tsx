@@ -93,45 +93,57 @@ export const DocumentEditor: React.FC = () => {
 });
 
     blockHub.connection.on('BlockEdited', (b: Block) => {
-  console.log('Block edited:', b);
+      console.log('Block edited:', b);
 
-  setBlocks(prev => prev.map(p => (p.id === b.id ? b : p)));
+      setBlocks(prev => prev.map(p => (p.id === b.id ? b : p)));
 
-  // обновляем содержимое редактора блока, если он есть
-  const editor = editorRefs.current[b.id] || activeEditor || fallbackEditor;
-  if (editor && b.text) {
-    try {
-      const json = JSON.parse(b.text);
-      editor.commands.setContent(json, false); // false = не триггерить onUpdate
-    } catch (e) {
-      console.error('Ошибка при обновлении редактора блока:', e);
-    }
-  }
-});
+      // обновляем содержимое редактора блока, если он есть
+      const editor = editorRefs.current[b.id] || activeEditor || fallbackEditor;
+      if (editor && b.text) {
+        try {
+          const json = JSON.parse(b.text);
+          editor.commands.setContent(json, false); // false = не триггерить onUpdate
+        } catch (e) {
+          console.error('Ошибка при обновлении редактора блока:', e);
+        }
+      }
+    });
 
    blockHub.connection.on('ReceiveBlockImage', (blockImage: { id: number; url: string }) => {
-  const editor = editorRefs.current[blockImage.id] || activeEditor || fallbackEditor;
-  if (!editor) return;
+    const editor = editorRefs.current[blockImage.id] || activeEditor || fallbackEditor;
+    if (!editor) return;
 
-  const { state, view } = editor;
+    const { state, view } = editor;
 
-  const imageNode = state.schema.nodes.image.create({
-    src: `${baseUrl}/${blockImage.url}`,
-    width: 300,
-    height: 200,
-    imageId: blockImage.id,
+    const imageNode = state.schema.nodes.image.create({
+      src: `${baseUrl}/${blockImage.url}`,
+      width: 300,
+      height: 200,
+      imageId: blockImage.id,
+    });
+
+    const transaction = state.tr.insert(state.selection.to, imageNode);
+    view.dispatch(transaction);
+    editor.view.focus();
   });
 
-  const transaction = state.tr.insert(state.selection.to, imageNode);
-  view.dispatch(transaction);
-  editor.view.focus();
-});
+  blockHub.connection.on('BlockDeleted', (blockId: number) => {
+  console.log('Block deleted:', blockId);
 
+  setBlocks(prev => prev.filter(b => b.id !== blockId));
+
+  if (activeEditor && editorRefs.current[blockId] === activeEditor) {
+    setActiveEditor(null);
+  }
+
+  delete editorRefs.current[blockId];
+});
 
     return () => {
       blockHub.connection.off('ReceiveBlock');
       blockHub.connection.off('BlockEdited');
       blockHub.connection.off('ReceiveBlockImage');
+      blockHub.connection.off('BlockDeleted');
     };
   }, [documentId, baseUrl, activeEditor, fallbackEditor]);
 
@@ -218,6 +230,21 @@ export const DocumentEditor: React.FC = () => {
     sendBlockMessage('SendBlock', [{ text: '{}', documentId: Number(documentId) }]);
   };
 
+  const handleDeleteBlock = () => {
+    if (!activeEditor) return;
+
+    const blockEntry = Object.entries(editorRefs.current)
+      .find(([, editor]) => editor === activeEditor);
+
+    if (!blockEntry) return;
+
+    const blockId = Number(blockEntry[0]);
+
+    if (!window.confirm('Удалить блок? Это действие нельзя отменить.')) return;
+
+    sendBlockMessage('DeleteBlock', [blockId]);
+  };
+
   // Показываем тулбар только если есть валидный редактор
   if (!activeEditor && !fallbackEditor) {
     return (
@@ -233,6 +260,7 @@ export const DocumentEditor: React.FC = () => {
     <EditorToolbar
       editor={activeEditor || (fallbackEditor as Editor)}
       onAddBlock={handleAddBlock}
+      onDeleteBlock={handleDeleteBlock}
       currentAttributes={currentAttributes}
       setCurrentAttributes={setCurrentAttributes}
       blocks={blocks}

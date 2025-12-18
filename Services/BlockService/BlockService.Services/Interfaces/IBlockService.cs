@@ -7,5 +7,6 @@ namespace BlockService.Services.Interfaces
         Task<Block> SendBlock(SendBlockRequest request);
         Task<List<Block>> GetBlocksByDocument(int userId, int documentId, DateTime from);
         Task<Block> EditBlock(EditBlockRequest request);
+        Task DeleteBlock(int blockId, int userId);
     }
 }

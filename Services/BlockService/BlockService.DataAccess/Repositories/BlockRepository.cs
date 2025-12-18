@@ -37,5 +37,10 @@ namespace BlockService.DataAccess.Repositories
         {
             await dapperContext.Command(new QueryObject(Sql.EditBlock, new { id, editedText, editedOn }));
         }
+
+        public async Task DeleteBlock(int id)
+        {
+            await dapperContext.Command( new QueryObject(Sql.DeleteBlock, new { id }));
+        }
     }
 }

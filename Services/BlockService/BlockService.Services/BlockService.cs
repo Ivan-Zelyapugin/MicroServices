@@ -1,4 +1,5 @@
-﻿using BlockService.DataAccess.Repositories.Interfaces;
+﻿using BlockService.DataAccess.Repositories;
+using BlockService.DataAccess.Repositories.Interfaces;
 using BlockService.Models.BlockText;
 using BlockService.Models.Permission;
 using BlockService.Services.Exceptions;
@@ -8,7 +9,7 @@ using BlockService.Services.Mapper;
 namespace BlockService.Services
 {
     public class BlockService(
-        IBlockRepository messageRepository,
+        IBlockRepository blockRepository,
         IDocumentRepository documentRepository,
         IDocumentParticipantRepository documentParticipantRepository
         ) : IBlockService
@@ -40,7 +41,7 @@ namespace BlockService.Services
 
             request.SentOn = DateTime.UtcNow;
             var dbBlock = request.MapToDb();
-            dbBlock.Id = await messageRepository.CreateBlock(dbBlock);
+            dbBlock.Id = await blockRepository.CreateBlock(dbBlock);
 
             return dbBlock.MapToDomain();
         }
@@ -57,14 +58,14 @@ namespace BlockService.Services
                 throw new DocumentParticipantNotFoundException(userId, documentId);
             }
 
-            var dbBlocks = await messageRepository.GetBlocksByDocument(documentId, from);
+            var dbBlocks = await blockRepository.GetBlocksByDocument(documentId, from);
 
             return dbBlocks.MapToDomain();
         }
 
         public async Task<Block> EditBlock(EditBlockRequest request)
         {
-            var message = await messageRepository.GetBlockById(request.Id);
+            var message = await blockRepository.GetBlockById(request.Id);
 
             if (message == null)
             {
@@ -77,9 +78,21 @@ namespace BlockService.Services
             }
 
             request.EditedOn = DateTime.UtcNow;
-            await messageRepository.EditBlock(request.Id, request.EditedText, request.EditedOn.Value);
+            await blockRepository.EditBlock(request.Id, request.EditedText, request.EditedOn.Value);
 
             return request.MapToDomain(message.SentOn, message.DocumentId);
+        }
+
+        public async Task DeleteBlock(int blockId, int userId)
+        {
+            var block = await blockRepository.GetBlockById(blockId);
+            if (block == null)
+                throw new BlockNotFoundException(blockId);
+
+            if (block.UserId != userId)
+                await ValidateWriteAccess(block.DocumentId, userId);
+
+            await blockRepository.DeleteBlock(blockId);
         }
     }
 }

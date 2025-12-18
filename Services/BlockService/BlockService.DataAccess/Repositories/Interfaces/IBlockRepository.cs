@@ -11,5 +11,6 @@ namespace BlockService.DataAccess.Repositories.Interfaces
         Task<DbBlock> GetBlockById(int id);
         Task<bool> IsBlockExists(int id);
         Task EditBlock(int id, string editedText, DateTime editedOn);
+        Task DeleteBlock(int id);
     }
 }

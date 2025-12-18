@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.SignalR;
 namespace BlockService.Api.Hubs
 {
     public class BlockHub(IConnectionTracker connectionTracker,
-        IBlockService messageService,
+        IBlockService blockService,
         IBlockRepository blockRepository,
         IBlockImageRepository blockImageRepository,
         IDocumentParticipantService documentParticipantService,
@@ -19,7 +19,7 @@ namespace BlockService.Api.Hubs
             try
             {
                 request.UserId = Id;
-                var message = await messageService.SendBlock(request);
+                var message = await blockService.SendBlock(request);
                 await Clients.Group($"Document{message.DocumentId}").SendAsync("ReceiveBlock", message);
             }
             catch (Exception e)
@@ -33,7 +33,7 @@ namespace BlockService.Api.Hubs
             try
             {
                 request.UserId = Id;
-                var editedBlock = await messageService.EditBlock(request);
+                var editedBlock = await blockService.EditBlock(request);
                 await Clients.Group($"Document{editedBlock.DocumentId}").SendAsync("BlockEdited", editedBlock);
             }
             catch (Exception e)
@@ -88,6 +88,29 @@ namespace BlockService.Api.Hubs
                 await blockImageService.DeleteBlockImage(imageId, Id);
                 await Clients.Group($"Document{documentId}")
                              .SendAsync("BlockImageDeleted", imageId);
+            }
+            catch (Exception e)
+            {
+                throw new HubException(e.Message);
+            }
+        }
+
+        public async Task DeleteBlock(int blockId)
+        {
+            try
+            {
+                var userId = Id;
+
+                var block = await blockRepository.GetBlockById(blockId);
+                if (block == null)
+                    throw new HubException($"Блок с ID {blockId} не найден");
+
+                var documentId = block.DocumentId;
+
+                await blockService.DeleteBlock(blockId, userId);
+
+                await Clients.Group($"Document{documentId}")
+                             .SendAsync("BlockDeleted", blockId);
             }
             catch (Exception e)
             {

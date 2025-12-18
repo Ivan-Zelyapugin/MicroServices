@@ -9,6 +9,7 @@ import { InsertTab } from './Tsx/InsertSection'
 interface HomeTabProps {
   editor: Editor;
   onAddBlock: () => void;
+  onDeleteBlock : () => void;
   currentAttributes: EditorAttributes;
   setCurrentAttributes?: (attributes: EditorAttributes) => void;
   dropdownRef: React.RefObject<HTMLDivElement>;
@@ -22,6 +23,7 @@ interface HomeTabProps {
 export const HomeTab: React.FC<HomeTabProps> = ({
   editor,
   onAddBlock,
+  onDeleteBlock,
   currentAttributes,
   setCurrentAttributes,
   dropdownRef,
@@ -56,7 +58,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
 
   return (
     <div className="flex gap-4 items-start">
-      <BlocksSection editor={editor} onAddBlock={onAddBlock} />
+      <BlocksSection editor={editor} onAddBlock={onAddBlock} onDeleteBlock={onDeleteBlock}/>
       <FontSection
         editor={editor}
         currentAttributes={currentAttributes}

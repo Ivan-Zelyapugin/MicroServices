@@ -87,6 +87,14 @@ namespace BlockService.DataAccess.Repositories.Scripts {
             }
         }
 
+        internal static string DeleteBlock
+        {
+            get
+            {
+                return ResourceManager.GetString("DeleteBlock", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   Ищет локализованную строку, похожую на SELECT role
         ///FROM document_participants

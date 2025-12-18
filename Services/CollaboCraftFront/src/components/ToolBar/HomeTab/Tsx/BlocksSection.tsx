@@ -5,12 +5,20 @@ import { Editor } from '@tiptap/core';
 interface BlocksSectionProps {
   editor: Editor;
   onAddBlock: () => void;
+  onDeleteBlock: () => void;
 }
 
-export const BlocksSection: React.FC<BlocksSectionProps> = ({ editor, onAddBlock }) => {
+export const BlocksSection: React.FC<BlocksSectionProps> = ({
+  editor,
+  onAddBlock,
+  onDeleteBlock,
+}) => {
+  const canDelete = editor?.isEditable;
+
   return (
     <div className="flex flex-col border-r pr-4 min-w-[140px]">
       <span className="text-sm font-semibold text-gray-500 mb-1">Блоки</span>
+
       <button
         type="button"
         onClick={onAddBlock}
@@ -18,10 +26,16 @@ export const BlocksSection: React.FC<BlocksSectionProps> = ({ editor, onAddBlock
       >
         <FaPlus /> Добавить
       </button>
+
       <button
         type="button"
-        disabled
-        className="bg-gray-300 text-white px-3 py-1 rounded cursor-not-allowed flex items-center gap-2"
+        onClick={onDeleteBlock}
+        disabled={!canDelete}
+        className={`px-3 py-1 rounded flex items-center gap-2 ${
+          canDelete
+            ? 'bg-red-600 text-white hover:bg-red-700'
+            : 'bg-gray-300 text-white cursor-not-allowed'
+        }`}
       >
         <FaTrash /> Удалить
       </button>

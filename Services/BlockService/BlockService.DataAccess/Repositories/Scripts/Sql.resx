@@ -124,6 +124,9 @@
   <data name="CreateBlockImage" type="System.Resources.ResXFileRef, System.Windows.Forms">
     <value>BlockImage\CreateBlockImage.sql;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </data>
+  <data name="DeleteBlock" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>Block\DeleteBlock.sql;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </data>
   <data name="DeleteImage" type="System.Resources.ResXFileRef, System.Windows.Forms">
     <value>BlockImage\DeleteImage.sql;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </data>
