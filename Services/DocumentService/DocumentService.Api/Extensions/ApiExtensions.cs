@@ -76,6 +76,7 @@ namespace DocumentService.Api.Extensions
                             var path = context.HttpContext.Request.Path;
                             if (!string.IsNullOrEmpty(accessToken) &&
                                 (path.StartsWithSegments("/documenthub") ||
+                                 path.StartsWithSegments("/voicehub") ||
                                  path.StartsWithSegments("/participanthub")))
                             {
                                 context.Token = accessToken;

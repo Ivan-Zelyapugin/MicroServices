@@ -10,7 +10,9 @@ namespace DocumentService.Services.Extensions
             return services
                 .AddSingleton<IConnectionTracker, ConnectionTracker>()
                 .AddScoped<IDocumentService, DocumentService>()
-                .AddScoped<IDocumentParticipantService, DocumentParticipantService>();
+                .AddScoped<IDocumentParticipantService, DocumentParticipantService>()
+                .AddSingleton<IVoiceSessionManager, VoiceSessionManager>();
+            ;
         }
     }
 }

@@ -22,7 +22,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin", builder =>
     {
-        builder.WithOrigins("http://localhost:3000")
+        builder.SetIsOriginAllowed(_ => true)
                .AllowAnyMethod()
                .AllowAnyHeader()
                .AllowCredentials();
@@ -49,11 +49,13 @@ app.UseSwaggerUI(options =>
     options.RoutePrefix = string.Empty;
 });
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 app.MapHub<DocumentHub>("/documenthub");
 app.MapHub<ParticipantHub>("/participanthub");
+app.MapHub<VoiceHub>("/voicehub");
 
 app.MapGraphQL("/graphql");
 

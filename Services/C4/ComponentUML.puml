@@ -1,0 +1,101 @@
+@startuml
+skinparam linetype ortho
+skinparam componentStyle uml2
+
+title Component Diagram 
+
+actor "Клиент" as client
+
+[MinIO\n(9000, 9001)] as minio
+[Prometheus\n(9090)] as prom
+[Grafana\n(3000)] as grafana
+[SMTP-сервер] as smtp
+
+package "CollaboCraft" {
+    component "NGINX" as nginx {
+        portin "80 (HTTP)" as nginx_in
+        portout "http_out" as nginx_out
+    }
+    component "Frontend\n(React SPA)" as frontend {
+        portout "Browser UI" as frontend_ui
+        portout "NGINX (80)" as frontend_api
+    }
+    component "Auth Service\n(C#, ASP.NET Core)" as auth {
+        portin "5000 (HTTP)" as auth_http
+        portout "PostgreSQL (5432)" as auth_db
+        portout "Redis (6379)" as auth_redis
+        portout "Kafka (9092)" as auth_kafka
+        portout "metrics" as auth_metrics
+    }
+    component "Document Service\n(C#, ASP.NET Core)" as doc {
+        portin "5002 (HTTP)" as doc_http
+        portout "PostgreSQL (5432)" as doc_db
+        portout "metrics" as doc_metrics
+    }
+    component "Block Service\n(C#, ASP.NET Core)" as block {
+        portin "5003 (HTTP)" as block_http
+        portout "PostgreSQL (5432)" as block_db
+        portout "MinIO (9000)" as doc_s3
+        portout "metrics" as block_metrics
+    }
+    component "Email Service\n(C#, ASP.NET Core)" as email {
+        portin "Kafka (9092)" as email_kafka
+        portout "SMTP" as email_smtp
+    }
+    component "Kafka\n(Apache Kafka)" as kafka {
+        portin "9092 (Publish)" as kafka_pub
+        portout "9092 (Consume)" as kafka_consume
+    }
+
+    database "PostgreSQL\n(port 5432)" as db
+    database "Redis\n(port 6379)" as redis
+
+    interface "HTTP" as HTTP
+    interface "SQL" as SQL
+    interface "S3_API" as S3_API
+    interface "SMTP" as SMTP_IF
+    interface "Kafka_Event" as KAFKA_EVT
+    interface "Redis_Protocol" as REDIS_PROTO
+    interface "Metrics" as METRICS
+}
+
+
+
+client --> frontend_ui : Использует
+
+frontend_api --> nginx_in
+nginx_out --( HTTP
+
+auth_http <-- HTTP
+doc_http <-- HTTP
+block_http <-- HTTP
+
+auth_db --( SQL
+doc_db --( SQL
+block_db --( SQL
+
+SQL <-- db
+REDIS_PROTO <-- redis
+
+doc_s3 --( S3_API
+minio <-- S3_API
+
+email_smtp --( SMTP_IF
+smtp <-- SMTP_IF
+
+auth_redis --( REDIS_PROTO
+
+auth_kafka --( KAFKA_EVT
+
+email_kafka --( KAFKA_EVT
+kafka_consume <-- KAFKA_EVT
+kafka_pub <-- KAFKA_EVT
+
+auth_metrics --( METRICS
+doc_metrics --( METRICS
+block_metrics --( METRICS
+prom <-- METRICS
+
+prom --> grafana : Экспортирует метрики
+
+@enduml

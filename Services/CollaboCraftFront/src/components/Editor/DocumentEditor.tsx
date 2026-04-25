@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import VoiceChat from './VoiceChat';
 import { useDebouncedCallback } from 'use-debounce';
-import { startBlockHub, sendBlockMessage, blockHub } from '../../api/signalr';
+import { sendBlockMessage, blockHub } from '../../api/signalr';
 import { getBlocksByDocument } from '../../api/block';
 import { getMyDocuments, getCurrentUser } from '../../api/document';
 import { RichTextBlockEditor } from './RichTextBlockEditor';
@@ -13,6 +12,7 @@ import { Editor, useEditor } from '@tiptap/react';
 import { commonExtensions } from './editorExtensions';
 import { EditorAttributes } from '../ToolBar/HomeTab/Ts/types';
 import { getEditorAttributes } from './editorUtils'
+import { useVoiceChat } from '../../models/useVoiceChat';
 
 export const DocumentEditor: React.FC = () => {
   const baseUrl = '/minio';
@@ -24,6 +24,14 @@ export const DocumentEditor: React.FC = () => {
   const editorRefs = useRef<Record<number, Editor>>({});
   const [documentTitle, setDocumentTitle] = useState<string>('Документ');
   const [currentUser, setCurrentUser] = useState<{ id: number; name: string } | null>(null);
+  const {
+    toggleMute,
+    toggleScreenShare,
+    participants,
+    isMuted,
+    isScreenSharing,
+    screenShares,
+  } = useVoiceChat(Number(documentId));
 
   const fallbackEditor = useEditor({
     extensions: commonExtensions,
@@ -146,44 +154,6 @@ export const DocumentEditor: React.FC = () => {
       blockHub.connection.off('BlockDeleted');
     };
   }, [documentId, baseUrl, activeEditor, fallbackEditor]);
-
-  useEffect(() => {
-  const panel = document.getElementById('voice-chat-panel');
-  if (!panel) return;
-
-  let offsetX = 0, offsetY = 0, isDragging = false;
-
-  const onMouseDown = (e: MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button, input, textarea')) return;
-    isDragging = true;
-    offsetX = e.clientX - panel.getBoundingClientRect().left;
-    offsetY = e.clientY - panel.getBoundingClientRect().top;
-    panel.style.transition = 'none';
-  };
-
-  const onMouseMove = (e: MouseEvent) => {
-    if (!isDragging) return;
-    panel.style.left = `${e.clientX - offsetX}px`;
-    panel.style.top = `${e.clientY - offsetY}px`;
-    panel.style.right = 'auto';
-    panel.style.bottom = 'auto';
-  };
-
-  const onMouseUp = () => {
-    isDragging = false;
-    panel.style.transition = 'all 0.1s ease';
-  };
-
-  panel.addEventListener('mousedown', onMouseDown);
-  window.addEventListener('mousemove', onMouseMove);
-  window.addEventListener('mouseup', onMouseUp);
-
-  return () => {
-    panel.removeEventListener('mousedown', onMouseDown);
-    window.removeEventListener('mousemove', onMouseMove);
-    window.removeEventListener('mouseup', onMouseUp);
-  };
-}, []);
 
   const handleBlockChange = (id: number, json: any) => {
     setBlocks(prev => prev.map(b => (b.id === id ? { ...b, text: JSON.stringify(json) } : b)));
@@ -317,7 +287,113 @@ export const DocumentEditor: React.FC = () => {
         })}
       </main>
     </div>
+{/* 🎤 Voice Chat Panel */}
+<aside
+  id="voice-chat-panel"
+  className="fixed bottom-6 right-6 w-[340px] max-h-[80vh] overflow-hidden bg-white/95 backdrop-blur shadow-2xl rounded-2xl border border-gray-200 z-50"
+>
+  <div className="px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-violet-50">
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="font-semibold text-sm text-gray-900">Голосовой чат</p>
+        <p className="text-xs text-gray-500">Документ #{documentId}</p>
+      </div>
+      <div className="text-xs text-gray-600 bg-white rounded-full px-2 py-1 border border-gray-200">
+        {participants.length} online
+      </div>
+    </div>
+  </div>
 
+  <div className="p-3 flex flex-col gap-3">
+    <div className="grid grid-cols-2 gap-2">
+      <button
+        onClick={() => toggleMute().catch((err) => console.error(err))}
+        className={`text-xs font-medium px-3 py-2 rounded-lg transition ${
+          isMuted
+            ? 'bg-red-100 text-red-700 border border-red-200'
+            : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+        }`}
+      >
+        {isMuted ? 'Включить микрофон' : 'Выключить микрофон'}
+      </button>
+
+      <button
+        onClick={() => toggleScreenShare().catch((err) => console.error(err))}
+        className={`text-xs font-medium px-3 py-2 rounded-lg transition ${
+          isScreenSharing
+            ? 'bg-violet-100 text-violet-700 border border-violet-200'
+            : 'bg-gray-100 text-gray-700 border border-gray-200'
+        }`}
+      >
+        {isScreenSharing ? 'Остановить экран' : 'Шарить экран'}
+      </button>
+    </div>
+
+    <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
+      <p className="text-xs font-semibold text-gray-700 mb-2">Участники</p>
+      <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto pr-1">
+        {participants.length === 0 && (
+          <div className="text-xs text-gray-400">Пока никого нет</div>
+        )}
+
+        {participants.map((participant) => (
+          <div
+            key={participant.connectionId}
+            className="flex items-center justify-between gap-2 bg-white border border-gray-100 rounded-lg px-2 py-1.5 text-xs"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  participant.isSpeaking ? 'bg-green-500' : 'bg-gray-300'
+                }`}
+              />
+              <span className="truncate text-gray-700">
+                {participant.isSelf ? 'Вы' : participant.username}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1 text-[10px]">
+              {participant.isMuted && (
+                <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-600">mute</span>
+              )}
+              {participant.isScreenSharing && (
+                <span className="px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">screen</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
+      <p className="text-xs font-semibold text-gray-700 mb-2">Трансляция экрана</p>
+      <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+        {screenShares.length === 0 && (
+          <div className="text-xs text-gray-400">Никто не делится экраном</div>
+        )}
+
+        {screenShares.map((share) => (
+          <div key={share.connectionId} className="bg-white border border-gray-100 rounded-lg p-2">
+            <p className="text-[11px] text-gray-600 mb-1">
+              {share.isSelf ? 'Ваш экран' : `Экран: ${share.username}`}
+            </p>
+            <video
+              autoPlay
+              playsInline
+              muted={share.isSelf}
+              className="w-full h-28 rounded border border-gray-200 bg-black object-cover"
+              ref={(node) => {
+                if (node && node.srcObject !== share.stream) {
+                  node.srcObject = share.stream;
+                }
+              }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+</aside>
     
     
   </div>
