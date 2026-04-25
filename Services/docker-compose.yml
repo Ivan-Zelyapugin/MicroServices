@@ -147,6 +147,27 @@ services:
     networks:
       - app-network_2
 
+  coturn:
+    image: coturn/coturn:4.6.2
+    container_name: coturn
+    command:
+      - -n
+      - --log-file=stdout
+      - --min-port=49160
+      - --max-port=49200
+      - --realm=collabocraft.local
+      - --fingerprint
+      - --lt-cred-mech
+      - --user=collabocraft:collabocraft_secret
+      - --listening-port=3478
+      - --listening-ip=0.0.0.0
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49160-49200:49160-49200/udp"
+    networks:
+      - app-network_2
+
   database:
     container_name: database_migrator
     build:

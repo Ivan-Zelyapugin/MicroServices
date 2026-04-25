@@ -32,6 +32,16 @@ export const DocumentEditor: React.FC = () => {
     isScreenSharing,
     screenShares,
   } = useVoiceChat(Number(documentId));
+  const [expandedShareConnectionId, setExpandedShareConnectionId] = useState<string | null>(null);
+
+  const expandedShare = screenShares.find((s) => s.connectionId === expandedShareConnectionId) ?? null;
+
+  useEffect(() => {
+    if (!expandedShareConnectionId) return;
+    if (!screenShares.some((s) => s.connectionId === expandedShareConnectionId)) {
+      setExpandedShareConnectionId(null);
+    }
+  }, [expandedShareConnectionId, screenShares]);
 
   const fallbackEditor = useEditor({
     extensions: commonExtensions,
@@ -374,14 +384,22 @@ export const DocumentEditor: React.FC = () => {
 
         {screenShares.map((share) => (
           <div key={share.connectionId} className="bg-white border border-gray-100 rounded-lg p-2">
-            <p className="text-[11px] text-gray-600 mb-1">
-              {share.isSelf ? 'Ваш экран' : `Экран: ${share.username}`}
-            </p>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <p className="text-[11px] text-gray-600">
+                {share.isSelf ? 'Ваш экран' : `Экран: ${share.username}`}
+              </p>
+              <button
+                onClick={() => setExpandedShareConnectionId(share.connectionId)}
+                className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600"
+              >
+                Развернуть
+              </button>
+            </div>
             <video
               autoPlay
               playsInline
               muted={share.isSelf}
-              className="w-full h-28 rounded border border-gray-200 bg-black object-cover"
+              className="w-full h-28 rounded border border-gray-200 bg-black object-contain"
               ref={(node) => {
                 if (node && node.srcObject !== share.stream) {
                   node.srcObject = share.stream;
@@ -394,6 +412,38 @@ export const DocumentEditor: React.FC = () => {
     </div>
   </div>
 </aside>
+
+{expandedShare && (
+  <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-6">
+    <div className="bg-gray-950 w-full max-w-6xl h-[85vh] rounded-xl border border-gray-700 overflow-hidden flex flex-col">
+      <div className="px-4 py-3 bg-gray-900 text-gray-100 flex items-center justify-between">
+        <span className="text-sm">
+          {expandedShare.isSelf ? 'Ваш экран (полный просмотр)' : `Экран ${expandedShare.username}`}
+        </span>
+        <button
+          onClick={() => setExpandedShareConnectionId(null)}
+          className="text-xs px-3 py-1 rounded border border-gray-700 bg-gray-800 hover:bg-gray-700"
+        >
+          Закрыть
+        </button>
+      </div>
+      <div className="flex-1 p-3">
+        <video
+          autoPlay
+          playsInline
+          muted={expandedShare.isSelf}
+          controls
+          className="w-full h-full rounded bg-black object-contain"
+          ref={(node) => {
+            if (node && node.srcObject !== expandedShare.stream) {
+              node.srcObject = expandedShare.stream;
+            }
+          }}
+        />
+      </div>
+    </div>
+  </div>
+)}
     
     
   </div>

@@ -21,14 +21,34 @@ export type ScreenShareItem = {
   isSelf: boolean;
 };
 
+const buildIceServers = (): RTCIceServer[] => {
+  const host = window.location.hostname;
+  const turnHost = process.env.REACT_APP_TURN_HOST || host;
+  const turnPort = process.env.REACT_APP_TURN_PORT || "3478";
+  const turnUser = process.env.REACT_APP_TURN_USERNAME || "collabocraft";
+  const turnPassword = process.env.REACT_APP_TURN_PASSWORD || "collabocraft_secret";
+
+  return [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: `stun:${turnHost}:${turnPort}` },
+    {
+      urls: [`turn:${turnHost}:${turnPort}?transport=udp`, `turn:${turnHost}:${turnPort}?transport=tcp`],
+      username: turnUser,
+      credential: turnPassword,
+    },
+  ];
+};
+
 export const useVoiceChat = (documentId: number) => {
   const peers = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const videoSenders = useRef<Map<string, RTCRtpSender>>(new Map());
   const localAudioStream = useRef<MediaStream | null>(null);
   const localScreenStream = useRef<MediaStream | null>(null);
   const remoteScreenStreams = useRef<Map<string, MediaStream>>(new Map());
   const remoteAudioElements = useRef<Map<string, HTMLAudioElement>>(new Map());
   const monitorFrames = useRef<Map<string, number>>(new Map());
   const makingOffer = useRef<Map<string, boolean>>(new Map());
+  const ignoreOffer = useRef<Map<string, boolean>>(new Map());
   const selfConnectionId = useRef<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
@@ -37,6 +57,27 @@ export const useVoiceChat = (documentId: number) => {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [screenShares, setScreenShares] = useState<ScreenShareItem[]>([]);
   const participantsRef = useRef<VoiceParticipant[]>([]);
+  const isAudioUnlocked = useRef(false);
+
+  const unlockAudioPlayback = async () => {
+    if (isAudioUnlocked.current) {
+      return;
+    }
+
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContext();
+      }
+
+      if (audioContextRef.current.state !== "running") {
+        await audioContextRef.current.resume();
+      }
+
+      isAudioUnlocked.current = true;
+    } catch (error) {
+      console.warn("Не удалось активировать AudioContext", error);
+    }
+  };
 
   const upsertParticipant = (participant: VoiceParticipant) => {
     setParticipants((prev) => {
@@ -58,6 +99,7 @@ export const useVoiceChat = (documentId: number) => {
   const cleanupPeer = (connectionId: string) => {
     peers.current.get(connectionId)?.close();
     peers.current.delete(connectionId);
+    videoSenders.current.delete(connectionId);
 
     remoteAudioElements.current.get(connectionId)?.pause();
     remoteAudioElements.current.delete(connectionId);
@@ -68,6 +110,7 @@ export const useVoiceChat = (documentId: number) => {
       monitorFrames.current.delete(connectionId);
     }
     makingOffer.current.delete(connectionId);
+    ignoreOffer.current.delete(connectionId);
 
     remoteScreenStreams.current.delete(connectionId);
     setScreenShares((prev) => prev.filter((s) => s.connectionId !== connectionId));
@@ -142,7 +185,7 @@ export const useVoiceChat = (documentId: number) => {
     }
 
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: buildIceServers(),
     });
 
     localAudioStream.current.getTracks().forEach((track) => {
@@ -150,6 +193,7 @@ export const useVoiceChat = (documentId: number) => {
     });
 
     const videoTransceiver = pc.addTransceiver("video", { direction: "sendrecv" });
+    videoSenders.current.set(targetConnectionId, videoTransceiver.sender);
     const screenTrack = localScreenStream.current?.getVideoTracks()[0];
     if (screenTrack) {
       await videoTransceiver.sender.replaceTrack(screenTrack);
@@ -166,12 +210,8 @@ export const useVoiceChat = (documentId: number) => {
     };
 
     pc.ontrack = (event) => {
-      const stream = event.streams[0];
-      if (!stream) {
-        return;
-      }
-
       if (event.track.kind === "audio") {
+        const stream = new MediaStream([event.track]);
         let audio = remoteAudioElements.current.get(targetConnectionId);
         if (!audio) {
           audio = new Audio();
@@ -180,11 +220,16 @@ export const useVoiceChat = (documentId: number) => {
         }
 
         audio.srcObject = stream;
-        audio.play().catch(() => {});
+        audio.onloadedmetadata = () => {
+          audio?.play().catch(() => {
+            // повторим play после первого пользовательского действия
+          });
+        };
         monitorAudio(stream, targetConnectionId);
       }
 
       if (event.track.kind === "video") {
+        const stream = new MediaStream([event.track]);
         remoteScreenStreams.current.set(targetConnectionId, stream);
         refreshScreenShares();
 
@@ -218,6 +263,39 @@ export const useVoiceChat = (documentId: number) => {
     return pc;
   };
 
+  const shouldInitiateWith = (targetConnectionId: string) => {
+    const ownId = selfConnectionId.current;
+    if (!ownId) {
+      return false;
+    }
+
+    return ownId.localeCompare(targetConnectionId) < 0;
+  };
+
+  const ensurePeerConnection = async (targetConnectionId: string) => {
+    const initiator = shouldInitiateWith(targetConnectionId);
+    await createPeer(targetConnectionId, initiator);
+  };
+
+  const renegotiateAllPeers = async () => {
+    const tasks = Array.from(peers.current.entries()).map(async ([targetConnectionId, pc]) => {
+      if (pc.signalingState !== "stable") {
+        return;
+      }
+
+      try {
+        makingOffer.current.set(targetConnectionId, true);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await sendVoiceMessage("SendOffer", [targetConnectionId, JSON.stringify(offer)]);
+      } finally {
+        makingOffer.current.set(targetConnectionId, false);
+      }
+    });
+
+    await Promise.all(tasks);
+  };
+
   const stopScreenSharing = async () => {
     const stream = localScreenStream.current;
     if (!stream) {
@@ -227,12 +305,10 @@ export const useVoiceChat = (documentId: number) => {
     stream.getTracks().forEach((track) => track.stop());
     localScreenStream.current = null;
 
-    for (const peer of peers.current.values()) {
-      const videoSender = peer.getSenders().find((sender) => sender.track?.kind === "video");
-      if (videoSender) {
-        await videoSender.replaceTrack(null);
-      }
+    for (const videoSender of videoSenders.current.values()) {
+      await videoSender.replaceTrack(null);
     }
+    await renegotiateAllPeers();
 
     setIsScreenSharing(false);
     refreshScreenShares();
@@ -248,12 +324,10 @@ export const useVoiceChat = (documentId: number) => {
     const screenTrack = stream.getVideoTracks()[0];
     localScreenStream.current = stream;
 
-    for (const peer of peers.current.values()) {
-      const videoSender = peer.getSenders().find((sender) => sender.track?.kind === "video");
-      if (videoSender) {
-        await videoSender.replaceTrack(screenTrack);
-      }
+    for (const videoSender of videoSenders.current.values()) {
+      await videoSender.replaceTrack(screenTrack);
     }
+    await renegotiateAllPeers();
 
     screenTrack.onended = () => {
       stopScreenSharing().catch((err) => console.error("Ошибка остановки шаринга", err));
@@ -265,6 +339,8 @@ export const useVoiceChat = (documentId: number) => {
   };
 
   const toggleScreenShare = async () => {
+    await unlockAudioPlayback();
+
     if (isScreenSharing) {
       await stopScreenSharing();
       return;
@@ -274,6 +350,8 @@ export const useVoiceChat = (documentId: number) => {
   };
 
   const toggleMute = async () => {
+    await unlockAudioPlayback();
+
     const track = localAudioStream.current?.getAudioTracks()[0];
     if (!track) {
       return;
@@ -300,6 +378,22 @@ export const useVoiceChat = (documentId: number) => {
   }, [participants]);
 
   useEffect(() => {
+    const onUserGesture = () => {
+      unlockAudioPlayback().catch(() => {});
+
+      remoteAudioElements.current.forEach((audio) => {
+        audio.play().catch(() => {});
+      });
+    };
+
+    window.addEventListener("pointerdown", onUserGesture, { passive: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", onUserGesture);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!Number.isFinite(documentId) || documentId <= 0) {
       return;
     }
@@ -313,6 +407,7 @@ export const useVoiceChat = (documentId: number) => {
 
         const username = localStorage.getItem("username") || "Вы";
         localAudioStream.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+        await unlockAudioPlayback();
 
         const selfParticipant: VoiceParticipant = {
           connectionId: selfConnectionId.current || "self",
@@ -342,7 +437,7 @@ export const useVoiceChat = (documentId: number) => {
           upsertParticipant({ ...participant, isSelf, isSpeaking: false });
 
           if (!isSelf) {
-            await createPeer(participant.connectionId, false);
+            await ensurePeerConnection(participant.connectionId);
           }
         });
 
@@ -380,8 +475,14 @@ export const useVoiceChat = (documentId: number) => {
           }
 
           const pc = await createPeer(fromConnectionId, false);
+          const polite = !shouldInitiateWith(fromConnectionId);
           const offerCollision =
             makingOffer.current.get(fromConnectionId) === true || pc.signalingState !== "stable";
+
+          ignoreOffer.current.set(fromConnectionId, !polite && offerCollision);
+          if (ignoreOffer.current.get(fromConnectionId)) {
+            return;
+          }
 
           if (offerCollision) {
             try {
@@ -416,7 +517,13 @@ export const useVoiceChat = (documentId: number) => {
             return;
           }
 
-          await pc.addIceCandidate(new RTCIceCandidate(JSON.parse(candidate)));
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(JSON.parse(candidate)));
+          } catch (error) {
+            if (!ignoreOffer.current.get(fromConnectionId)) {
+              throw error;
+            }
+          }
         });
 
         const existingParticipants = (await sendVoiceMessage("JoinVoice", [documentId])) as ParticipantDto[];
@@ -429,7 +536,7 @@ export const useVoiceChat = (documentId: number) => {
           upsertParticipant({ ...existing, isSelf, isSpeaking: false });
 
           if (!isSelf) {
-            await createPeer(existing.connectionId, true);
+            await ensurePeerConnection(existing.connectionId);
           }
         }
       } catch (error) {
@@ -446,6 +553,7 @@ export const useVoiceChat = (documentId: number) => {
 
       peers.current.forEach((pc) => pc.close());
       peers.current.clear();
+      videoSenders.current.clear();
 
       remoteAudioElements.current.forEach((audio) => audio.pause());
       remoteAudioElements.current.clear();
