@@ -115,11 +115,23 @@ export const DocumentEditor: React.FC = () => {
 
       setBlocks(prev => prev.map(p => (p.id === b.id ? b : p)));
 
-      // обновляем содержимое редактора блока, если он есть
-      const editor = editorRefs.current[b.id] || activeEditor || fallbackEditor;
+      // обновляем только конкретный редактор блока, чтобы не сбивать курсор
+      const editor = editorRefs.current[b.id];
       if (editor && b.text) {
         try {
           const json = JSON.parse(b.text);
+
+          // Если пользователь сейчас печатает в этом блоке, не перезаписываем контент,
+          // иначе курсор перескакивает (часто в конец/последнюю ячейку таблицы).
+          if (editor.isFocused) {
+            return;
+          }
+
+          const currentJson = editor.getJSON();
+          if (JSON.stringify(currentJson) === JSON.stringify(json)) {
+            return;
+          }
+
           editor.commands.setContent(json, false); // false = не триггерить onUpdate
         } catch (e) {
           console.error('Ошибка при обновлении редактора блока:', e);

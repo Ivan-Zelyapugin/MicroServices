@@ -11,7 +11,7 @@ export const InsertTab: React.FC<InsertTabProps> = ({ editor }) => {
   const [isTableModalOpen, setIsTableModalOpen] = useState(false);
 
   const handleInsertTable = (rows: number, cols: number) => {
-    editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
+    editor.chain().focus().insertTable({ rows, cols, withHeaderRow: false }).run();
   };
 
   const handleDeleteTable = () => {
