@@ -280,6 +280,7 @@ export const DocumentEditor: React.FC = () => {
       currentAttributes={currentAttributes}
       setCurrentAttributes={setCurrentAttributes}
       blocks={blocks}
+      documentTitle={documentTitle}
     />
 
     {/* 📝 Основная область редактора */}

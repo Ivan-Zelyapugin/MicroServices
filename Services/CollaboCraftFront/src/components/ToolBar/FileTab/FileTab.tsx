@@ -11,14 +11,24 @@ import {
   ShadingType,
   BorderStyle,
   ImageRun,
+  Table as DocxTable,
+  TableRow as DocxTableRow,
+  TableCell as DocxTableCell,
+  WidthType,
+  TableWidthUnit,
 } from 'docx';
 import { saveAs } from 'file-saver';
+import { generateHTML } from '@tiptap/html';
+import { commonExtensions } from '../../Editor/editorExtensions';
+// @ts-ignore
+import html2pdf from 'html2pdf.js';
 
 interface FileTabProps {
   editor: Editor;
   blocks: Block[];
   setShowFileMenu: React.Dispatch<React.SetStateAction<boolean>>;
   showFileMenu: boolean;
+  documentTitle: string;
 }
 
 function normalizeColor(color: string | undefined): string | undefined {
@@ -85,7 +95,7 @@ async function fetchImageData(src: string | undefined): Promise<{ data: Uint8Arr
   return null;
 }
 
-export const FileTab: React.FC<FileTabProps> = ({ editor, blocks, setShowFileMenu, showFileMenu }) => {
+export const FileTab: React.FC<FileTabProps> = ({ editor, blocks, setShowFileMenu, showFileMenu, documentTitle }) => {
   const handleExport = async () => {
     if (!editor) return;
 
@@ -122,71 +132,101 @@ export const FileTab: React.FC<FileTabProps> = ({ editor, blocks, setShowFileMen
     };
 
     const processTextNode = (node: any) => {
-      const runs: any[] = [];
-      if (node.type === 'text' && node.text) {
-        const runOptions: any = { text: node.text };
-        if (node.marks) {
-          node.marks.forEach((mark: any) => {
-            if (mark.type === 'bold') runOptions.bold = true;
-            if (mark.type === 'italic') runOptions.italics = true;
-            if (mark.type === 'underline') runOptions.underline = {};
-            if (mark.type === 'strike') runOptions.strike = true;
-            if (mark.type === 'superscript') runOptions.superScript = true;
-            if (mark.type === 'subscript') runOptions.subScript = true;
-            if (mark.type === 'textStyle') {
-              if (mark.attrs?.fontFamily) runOptions.font = { name: mark.attrs.fontFamily };
-              if (mark.attrs?.fontSize) runOptions.size = parseInt(mark.attrs.fontSize) * 2;
-              if (mark.attrs?.color) {
-                const hexColor = normalizeColor(mark.attrs.color);
-                if (hexColor) runOptions.color = hexColor;
-              }
-            }
-            if (mark.type === 'highlight') {
-              const rawColor = mark.attrs.color;
-              const hexBgColor = normalizeColor(rawColor);
-              if (hexBgColor) {
-                runOptions.shading = { type: ShadingType.SOLID, fill: hexBgColor } as any;
-              }
-            }
-          });
-        }
-        runs.push(new DocxTextRun(runOptions));
+      if (node.type === 'text') {
+        return [new DocxTextRun({
+          text: node.text,
+          bold: node.marks?.some((m: any) => m.type === 'bold'),
+          italics: node.marks?.some((m: any) => m.type === 'italic'),
+          underline: node.marks?.some((m: any) => m.type === 'underline') ? {} : undefined,
+          strike: node.marks?.some((m: any) => m.type === 'strike'),
+          color: normalizeColor(node.marks?.find((m: any) => m.type === 'textStyle')?.attrs?.color),
+          size: node.marks?.find((m: any) => m.type === 'fontSize')?.attrs?.fontSize 
+                ? parseInt(node.marks.find((m: any) => m.type === 'fontSize').attrs.fontSize) * 2 
+                : undefined,
+          font: node.marks?.find((m: any) => m.type === 'fontFamily')?.attrs?.fontFamily || undefined,
+          shading: node.marks?.some((m: any) => m.type === 'highlight') ? {
+            fill: normalizeColor(node.marks.find((m: any) => m.type === 'highlight').attrs?.color) || "FFFF00",
+            type: ShadingType.SOLID
+          } : undefined,
+        })];
       }
-      return runs;
+      return [];
     };
 
-    const processNode = async (node: any, listConfig: { type?: 'bullet' | 'ordered'; level?: number } = {}) => {
+    const processNode = async (node: any, target: any[] = paragraphs, listConfig: { type?: 'bullet' | 'ordered'; level?: number } = {}) => {
       if (node.type === 'image') {
         const img = await fetchImageData(node.attrs?.src);
         if (img) {
-  console.log("📥 Вставка ImageRun:", {
-    mime: img.mime,
-    length: img.length,
-    firstBytes: Array.from(img.data.slice(0, 12)).map(b => b.toString(16).padStart(2, "0")).join(" "),
-    width: Number(node.attrs?.width) || 300,
-    height: Number(node.attrs?.height) || 200,
-  });
-
-  paragraphs.push(new DocxParagraph({
-    children: [new ImageRun({
-      data: new Uint8Array(img.data),
-      transformation: {
-        width: Number(node.attrs?.width) || 300,
-        height: Number(node.attrs?.height) || 200,
-      },
-    }),
-    new DocxTextRun(" "),
-  ],
-  }));
-} else {
-  paragraphs.push(new DocxParagraph({ children: [new DocxTextRun('⚠️ [Image not found]')] }));
-}
+          target.push(new DocxParagraph({
+            children: [new ImageRun({
+              data: new Uint8Array(img.data),
+              transformation: {
+                width: Number(node.attrs?.width) || 300,
+                height: Number(node.attrs?.height) || 200,
+              },
+            })],
+          }));
+        } else {
+          target.push(new DocxParagraph({ children: [new DocxTextRun('⚠️ [Image not found]')] }));
+        }
         return;
       }
 
       switch (node.type) {
+        case 'table': {
+          const rows: any[] = [];
+          if (node.content) {
+            for (const rowNode of node.content) {
+              const cells: any[] = [];
+              if (rowNode.content) {
+                for (const cellNode of rowNode.content) {
+                  const cellContent: any[] = [];
+                  if (cellNode.content) {
+                    for (const innerNode of cellNode.content) {
+                      await processNode(innerNode, cellContent);
+                    }
+                  }
+                  cells.push(new DocxTableCell({
+                    children: cellContent.length > 0 ? cellContent : [new DocxParagraph("")],
+                    shading: cellNode.type === 'tableHeader' ? { fill: "F2F2F2", type: ShadingType.SOLID } : undefined,
+                  }));
+                }
+              }
+              rows.push(new DocxTableRow({ children: cells }));
+            }
+          }
+          target.push(new DocxTable({
+            rows,
+            width: { size: 100, type: WidthType.PERCENTAGE },
+          }));
+          break;
+        }
+        case 'bulletList': {
+          if (node.content) for (const child of node.content) await processNode(child, target, { type: 'bullet', level: (listConfig.level ?? -1) + 1 });
+          break;
+        }
+        case 'orderedList': {
+          if (node.content) for (const child of node.content) await processNode(child, target, { type: 'ordered', level: (listConfig.level ?? -1) + 1 });
+          break;
+        }
+        case 'listItem': {
+          if (node.content) {
+            for (const child of node.content) {
+              await processNode(child, target, listConfig);
+            }
+          }
+          break;
+        }
         case 'paragraph': {
           const runs: any[] = [];
+          
+          // Добавляем маркер списка если нужно
+          if (listConfig.type) {
+            const indent = "  ".repeat(listConfig.level || 0);
+            const marker = listConfig.type === 'bullet' ? "• " : "1. "; // Упрощенно
+            runs.push(new DocxTextRun({ text: indent + marker, bold: true }));
+          }
+
           if (node.content) {
             for (const child of node.content) {
               if (child.type === 'image') {
@@ -207,7 +247,7 @@ export const FileTab: React.FC<FileTabProps> = ({ editor, blocks, setShowFileMen
               }
             }
           }
-          paragraphs.push(new DocxParagraph({
+          target.push(new DocxParagraph({
             children: runs,
             alignment: node.attrs?.textAlign ? alignmentMap[node.attrs.textAlign] || AlignmentType.LEFT : AlignmentType.LEFT,
           }));
@@ -232,23 +272,11 @@ export const FileTab: React.FC<FileTabProps> = ({ editor, blocks, setShowFileMen
               }
             }
           }
-          paragraphs.push(new DocxParagraph({ children: runs, heading: headingMap[node.attrs?.level] || HeadingLevel.HEADING_1 }));
-          break;
-        }
-        case 'bulletList': {
-          if (node.content) for (const child of node.content) await processNode(child, { type: 'bullet', level: 0 });
-          break;
-        }
-        case 'orderedList': {
-          if (node.content) for (const child of node.content) await processNode(child, { type: 'ordered', level: 0 });
-          break;
-        }
-        case 'listItem': {
-          if (node.content) for (const child of node.content) await processNode(child, listConfig);
+          target.push(new DocxParagraph({ children: runs, heading: headingMap[node.attrs?.level] || HeadingLevel.HEADING_1 }));
           break;
         }
         case 'horizontalRule': {
-          paragraphs.push(new DocxParagraph({
+          target.push(new DocxParagraph({
             children: [],
             border: { bottom: { color: '000000', style: BorderStyle.SINGLE, size: 4 } },
             spacing: { before: 120, after: 120 },
@@ -257,27 +285,89 @@ export const FileTab: React.FC<FileTabProps> = ({ editor, blocks, setShowFileMen
         }
         default:
           console.warn(`Необработанный тип узла: ${node.type}`);
-          if (node.content) for (const child of node.content) await processNode(child, listConfig);
+          if (node.content) for (const child of node.content) await processNode(child, target, listConfig);
           break;
       }
     };
 
-    if (content.content) {
-      for (const node of content.content) {
-        await processNode(node);
-      }
+    for (const node of content.content) {
+      await processNode(node);
     }
 
     const doc = new Document({
-      sections: [{ children: paragraphs }],
+      sections: [{
+        properties: {},
+        children: paragraphs,
+      }],
     });
 
     try {
       const blob = await Packer.toBlob(doc);
-      saveAs(blob, 'document.docx');
+      saveAs(blob, `${documentTitle || 'document'}.docx`);
     } catch (e) {
       console.error('Ошибка при упаковке/скачивании docx:', e);
       alert('Ошибка при создании .docx. Смотрите консоль для деталей.');
+    }
+
+    setShowFileMenu(false);
+  };
+
+  const handleExportPdf = async () => {
+    if (!editor) return;
+
+    const allContents = blocks.map((block: Block) => {
+      try {
+        const parsed = JSON.parse(block.text || '{}');
+        return parsed?.type === 'doc' ? parsed : { type: 'doc', content: [] };
+      } catch {
+        return { type: 'doc', content: [] };
+      }
+    });
+
+    const content = {
+      type: 'doc',
+      content: allContents.flatMap((b: any) => b.content || []),
+    };
+
+    const htmlContent = generateHTML(content, commonExtensions);
+
+    // Создаем временный контейнер для рендеринга
+    const container = document.createElement('div');
+    container.innerHTML = htmlContent;
+    container.style.padding = '40px';
+    container.style.width = '794px'; // Приблизительная ширина A4
+    container.style.backgroundColor = 'white';
+    container.style.color = 'black';
+    container.className = 'prose prose-sm max-w-none';
+
+    // Добавляем стили для таблиц и изображений
+    const style = document.createElement('style');
+    style.innerHTML = `
+      table { border-collapse: collapse; width: 100%; margin-bottom: 1em; table-layout: fixed; }
+      th, td { border: 1px solid #ccc; padding: 8px; text-align: left; word-break: break-word; overflow-wrap: anywhere; }
+      th { background-color: #f2f2f2; }
+      img { max-width: 100%; height: auto; display: block; margin: 10px 0; }
+      .prose { font-family: sans-serif; line-height: 1.6; }
+      p { margin-bottom: 1em; }
+    `;
+    container.appendChild(style);
+    document.body.appendChild(container);
+
+    const options = {
+      margin: 10,
+      filename: `${documentTitle || 'document'}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    } as const;
+
+    try {
+      await html2pdf().set(options).from(container).save();
+    } catch (e) {
+      console.error('Ошибка при экспорте в PDF:', e);
+      alert('Ошибка при создании PDF.');
+    } finally {
+      document.body.removeChild(container);
     }
 
     setShowFileMenu(false);
@@ -293,13 +383,20 @@ export const FileTab: React.FC<FileTabProps> = ({ editor, blocks, setShowFileMen
         📁 Меню файла
       </button>
       {showFileMenu && (
-        <div className="absolute mt-2 bg-white border rounded shadow z-50 w-48">
+        <div className="absolute mt-2 bg-white border rounded shadow z-50 w-56">
           <button
             type="button"
             onClick={handleExport}
-            className="w-full text-left px-4 py-2 hover:bg-gray-100"
+            className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center gap-2"
           >
-            📤 Экспортировать в Word
+            <span>📄</span> Экспортировать в Word
+          </button>
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center gap-2"
+          >
+            <span>📕</span> Экспортировать в PDF
           </button>
         </div>
       )}

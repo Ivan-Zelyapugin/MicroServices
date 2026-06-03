@@ -14,9 +14,10 @@ interface EditorToolbarProps {
   currentAttributes: EditorAttributes;
   setCurrentAttributes?: (attributes: EditorAttributes) => void;
   blocks: Block[];
+  documentTitle: string;
 }
 
-export const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor, onAddBlock, onDeleteBlock, currentAttributes, setCurrentAttributes, blocks }) => {
+export const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor, onAddBlock, onDeleteBlock, currentAttributes, setCurrentAttributes, blocks, documentTitle }) => {
   const [activeTab, setActiveTab] = useState<'file' | 'home' | 'insert' | 'layout'>('home');
   const [showFileMenu, setShowFileMenu] = useState(false);
 
@@ -79,6 +80,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor, onAddBlock
             showFileMenu={showFileMenu}
             setShowFileMenu={setShowFileMenu}
             blocks={blocks}
+            documentTitle={documentTitle}
           />
         )}
         {activeTab === 'home' && (
