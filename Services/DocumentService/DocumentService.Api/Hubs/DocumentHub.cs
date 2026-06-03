@@ -31,16 +31,17 @@ namespace DocumentService.Api.Hubs
 
                     var document = await documentService.CreateDocument(request);
 
-                    var connectionIds = connectionTracker
-                        .SelectConnectionIds(request.UserIds)
-                        .Append(Context.ConnectionId);
-
-                    await Task.WhenAll(connectionIds.Select(connectionId =>
-                        Groups.AddToGroupAsync(connectionId, $"Document{document.Id}")));
+                    var userIdsToNotify = request.UserIds.Select(id => id.ToString()).ToList();
+                    
+                    // Добавляем создателя в группу (свое соединение)
+                    await Groups.AddToGroupAsync(Context.ConnectionId, $"Document{document.Id}");
 
                     await Clients.Caller.SendAsync("DocumentCreated", document);
-                    await Clients.Group($"Document{document.Id}")
-                        .SendAsync("AddedToDocument", request.UserIds);
+                    
+                    // Отправляем уведомление всем добавленным пользователям персонально по их UserId
+                    // Это сработает для всех их соединений в рамках этого хаба
+                    await Clients.Users(userIdsToNotify)
+                        .SendAsync("AddedToDocument", request.UserIds, document.Id);
 
                     DocumentHubMetrics.DocumentsCreated.Inc(); 
                 }
@@ -60,11 +61,9 @@ namespace DocumentService.Api.Hubs
                     await documentService.DeleteDocument(documentId, Id);
                     await Clients.Group($"Document{documentId}").SendAsync("DocumentDeleted", documentId);
 
-                    var connectionIds = connectionTracker.SelectConnectionIds(new List<int> { Id });
-                    await Task.WhenAll(connectionIds.Select(connectionId =>
-                        Groups.RemoveFromGroupAsync(connectionId, $"Document{documentId}")));
+                    await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"Document{documentId}");
 
-                    DocumentHubMetrics.DocumentsDeleted.Inc();
+                    DocumentHubMetrics.DocumentsDeleted.Inc(); 
                 }
                 catch (Exception e)
                 {
@@ -90,6 +89,30 @@ namespace DocumentService.Api.Hubs
                 {
                     throw new HubException(e.Message);
                 }
+            }
+        }
+
+        public async Task JoinDocument(int documentId)
+        {
+            try
+            {
+                await Groups.AddToGroupAsync(Context.ConnectionId, $"Document{documentId}");
+            }
+            catch (Exception e)
+            {
+                throw new HubException(e.Message);
+            }
+        }
+
+        public async Task LeaveDocument(int documentId)
+        {
+            try
+            {
+                await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"Document{documentId}");
+            }
+            catch (Exception e)
+            {
+                throw new HubException(e.Message);
             }
         }
 

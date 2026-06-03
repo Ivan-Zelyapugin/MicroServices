@@ -131,6 +131,30 @@ namespace BlockService.Api.Hubs
             }
         }
 
+        public async Task JoinDocument(int documentId)
+        {
+            try
+            {
+                await Groups.AddToGroupAsync(Context.ConnectionId, $"Document{documentId}");
+            }
+            catch (Exception e)
+            {
+                throw new HubException(e.Message);
+            }
+        }
+
+        public async Task LeaveDocument(int documentId)
+        {
+            try
+            {
+                await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"Document{documentId}");
+            }
+            catch (Exception e)
+            {
+                throw new HubException(e.Message);
+            }
+        }
+
         public override async Task OnConnectedAsync()
         {
             connectionTracker.TrackConnection(Context.ConnectionId, Id);

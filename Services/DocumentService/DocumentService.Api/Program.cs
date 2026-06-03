@@ -1,10 +1,11 @@
-﻿using DocumentService.Api.Extensions;
+using DocumentService.Api.Extensions;
 using DocumentService.Api.GraphQL;
 using DocumentService.Api.Hubs;
 using DocumentService.DataAccess.Extensions;
 using DocumentService.Services.Extensions;
 using Prometheus;
 using HotChocolate.AspNetCore.Voyager;
+using Microsoft.AspNetCore.SignalR;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,6 +13,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerWithAuth();
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
+builder.Services.AddSingleton<IUserIdProvider, UserIdProvider>();
 
 builder.Services.AddDapper();
 builder.Services.AddRepositories();

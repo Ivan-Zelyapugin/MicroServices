@@ -1,4 +1,4 @@
-﻿using DocumentService.Services.Interfaces;
+using DocumentService.Services.Interfaces;
 using System.Collections.Concurrent;
 
 namespace DocumentService.Services
@@ -54,13 +54,10 @@ namespace DocumentService.Services
 
         public IEnumerable<string> SelectConnectionIds(IEnumerable<int> userIds)
         {
-            foreach (var userId in userIds)
-            {
-                if (_connectedUsers.Values.Contains(userId))
-                {
-                    yield return _connectedUsers.FirstOrDefault(x => x.Value == userId).Key;
-                }
-            }
+            var userIdsSet = new HashSet<int>(userIds);
+            return _connectedUsers
+                .Where(x => userIdsSet.Contains(x.Value))
+                .Select(x => x.Key);
         }
     }
 }

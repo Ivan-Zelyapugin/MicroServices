@@ -1,4 +1,4 @@
-﻿using DocumentService.Api.HubMetrics;
+using DocumentService.Api.HubMetrics;
 using DocumentService.DataAccess.Repositories.Interfaces;
 using DocumentService.Models.Document;
 using DocumentService.Services.Interfaces;
@@ -31,12 +31,15 @@ namespace DocumentService.Api.Hubs
 
                     await documentService.AddUsersToDocument(request);
 
-                    var connectionIds = connectionTracker.SelectConnectionIds(request.UserIds);
-                    await Task.WhenAll(connectionIds.Select(connectionId =>
-                        Groups.AddToGroupAsync(connectionId, $"Document{request.DocumentId}")));
+                    var userIdsToNotify = request.UserIds.Select(id => id.ToString()).ToList();
 
+                    // Отправляем уведомление существующим участникам через группу
                     await Clients.Group($"Document{request.DocumentId}")
-                        .SendAsync("AddedToDocument", request.UserIds);
+                        .SendAsync("AddedToDocument", request.UserIds, request.DocumentId);
+                    
+                    // И персонально всем добавленным пользователям (на все их соединения в этом хабе)
+                    await Clients.Users(userIdsToNotify)
+                        .SendAsync("AddedToDocument", request.UserIds, request.DocumentId);
 
                     ParticipantHubMetrics.UsersAddedToDocument.Inc();
                 }
@@ -75,19 +78,53 @@ namespace DocumentService.Api.Hubs
                 {
                     await documentParticipantService.RemoveUserFromDocument(documentId, userId, Id);
 
-                    var connectionIds = connectionTracker.SelectConnectionIds(new List<int> { userId });
-                    await Task.WhenAll(connectionIds.Select(connectionId =>
-                        Groups.RemoveFromGroupAsync(connectionId, $"Document{documentId}")));
-
                     await Clients.Group($"Document{documentId}")
                         .SendAsync("UserRemoved", documentId, userId);
 
-                    ParticipantHubMetrics.UsersRemovedFromDocument.Inc();
+                    // Если удаляемый пользователь онлайн, пробуем убрать его текущие соединения из группы
+                    var connectionIds = connectionTracker.SelectConnectionIds(new List<int> { userId });
+                    foreach (var connId in connectionIds)
+                    {
+                        try
+                        {
+                            await Groups.RemoveFromGroupAsync(connId, $"Document{documentId}");
+                        }
+                        catch
+                        {
+                            // Игнорируем ошибки, если соединение принадлежит другому хабу
+                        }
+                    }
+
+                    ParticipantHubMetrics.UsersRemovedFromDocument.Inc(); 
                 }
                 catch (Exception e)
                 {
                     throw new HubException(e.Message);
                 }
+            }
+        }
+
+        public async Task JoinDocument(int documentId)
+        {
+            try
+            {
+                await Groups.AddToGroupAsync(Context.ConnectionId, $"Document{documentId}");
+            }
+            catch (Exception e)
+            {
+                throw new HubException(e.Message);
+            }
+        }
+
+        public async Task LeaveDocument(int documentId)
+        {
+            try
+            {
+                await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"Document{documentId}");
+            }
+            catch (Exception e)
+            {
+                throw new HubException(e.Message);
             }
         }
 

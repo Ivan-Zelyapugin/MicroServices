@@ -66,6 +66,12 @@ export const DocumentEditor: React.FC = () => {
   loadUser();
 }, []);
 
+  const activeEditorRef = useRef<Editor | null>(null);
+
+  useEffect(() => {
+    activeEditorRef.current = activeEditor;
+  }, [activeEditor]);
+
   useEffect(() => {
     if (fallbackEditor) {
       fallbackEditor.setEditable(role === 'Creator' || role === 'Editor');
@@ -86,96 +92,114 @@ export const DocumentEditor: React.FC = () => {
     if (!documentId) return;
 
     const fetchData = async () => {
-    try {
-      const fetched = await getBlocksByDocument(Number(documentId), new Date(0).toISOString());
-      const docs = await getMyDocuments();
-      setBlocks(fetched);
-      setRole(docs.find(d => d.document.id === Number(documentId))?.role ?? null);
-      const currentDoc = docs.find(d => d.document.id === Number(documentId));
-      setDocumentTitle(currentDoc?.document.name ?? 'Документ');
-    } catch (error) {
-      console.error('Error fetching blocks or documents:', error);
-    }
-  };
+      try {
+        const fetched = await getBlocksByDocument(Number(documentId), new Date(0).toISOString());
+        const docs = await getMyDocuments();
+        setBlocks(fetched);
+        setRole(docs.find(d => d.document.id === Number(documentId))?.role ?? null);
+        const currentDoc = docs.find(d => d.document.id === Number(documentId));
+        setDocumentTitle(currentDoc?.document.name ?? 'Документ');
 
-  fetchData();
+        // Присоединяемся к группе документа в BlockHub
+        await sendBlockMessage('JoinDocument', [Number(documentId)]);
+      } catch (error) {
+        console.error('Error fetching blocks or documents:', error);
+      }
+    };
 
-    blockHub.connection.on('ReceiveBlock', (newBlock: Block) => {
-  console.log('Received new block:', newBlock);
+    fetchData();
 
-  setBlocks(prev => {
-    // предотвращаем дубликаты
-    if (prev.find(b => b.id === newBlock.id)) return prev;
-    return [...prev, newBlock];
-  });
-});
+    return () => {
+      sendBlockMessage('LeaveDocument', [Number(documentId)]).catch(err => 
+        console.error('Error leaving document group:', err)
+      );
+    };
+  }, [documentId]);
 
-    blockHub.connection.on('BlockEdited', (b: Block) => {
+  useEffect(() => {
+    if (!documentId) return;
+
+    const handleReceiveBlock = (newBlock: Block) => {
+      console.log('Received new block:', newBlock);
+      setBlocks(prev => {
+        if (prev.find(b => b.id === newBlock.id)) return prev;
+        return [...prev, newBlock];
+      });
+    };
+
+    const handleBlockEdited = (b: Block) => {
       console.log('Block edited:', b);
-
       setBlocks(prev => prev.map(p => (p.id === b.id ? b : p)));
 
-      // обновляем только конкретный редактор блока, чтобы не сбивать курсор
       const editor = editorRefs.current[b.id];
       if (editor && b.text) {
         try {
           const json = JSON.parse(b.text);
-
-          // Если пользователь сейчас печатает в этом блоке, не перезаписываем контент,
-          // иначе курсор перескакивает (часто в конец/последнюю ячейку таблицы).
-          if (editor.isFocused) {
-            return;
-          }
+          if (editor.isFocused) return;
 
           const currentJson = editor.getJSON();
-          if (JSON.stringify(currentJson) === JSON.stringify(json)) {
-            return;
-          }
+          if (JSON.stringify(currentJson) === JSON.stringify(json)) return;
 
-          editor.commands.setContent(json, false); // false = не триггерить onUpdate
+          editor.commands.setContent(json, false);
         } catch (e) {
           console.error('Ошибка при обновлении редактора блока:', e);
         }
       }
-    });
+    };
 
-   blockHub.connection.on('ReceiveBlockImage', (blockImage: { id: number; url: string }) => {
-    const editor = editorRefs.current[blockImage.id] || activeEditor || fallbackEditor;
-    if (!editor) return;
+    const handleReceiveBlockImage = (blockImage: { id: number; blockId: number; url: string }) => {
+      console.log('Received block image:', blockImage);
+      const editor = editorRefs.current[blockImage.blockId] || activeEditorRef.current || fallbackEditor;
+      if (!editor) return;
 
-    const { state, view } = editor;
+      // Проверяем, нет ли уже этой картинки в редакторе
+      let imageExists = false;
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === 'image' && node.attrs.imageId === blockImage.id) {
+          imageExists = true;
+          return false;
+        }
+      });
 
-    const imageNode = state.schema.nodes.image.create({
-      src: `${baseUrl}/${blockImage.url}`,
-      width: 300,
-      height: 200,
-      imageId: blockImage.id,
-    });
+      if (imageExists) {
+        console.log('Image already exists in editor, skipping insertion');
+        return;
+      }
 
-    const transaction = state.tr.insert(state.selection.to, imageNode);
-    view.dispatch(transaction);
-    editor.view.focus();
-  });
+      const { state, view } = editor;
+      const imageNode = state.schema.nodes.image.create({
+        src: `${baseUrl}/${blockImage.url}`,
+        width: 300,
+        height: 200,
+        imageId: blockImage.id,
+      });
 
-  blockHub.connection.on('BlockDeleted', (blockId: number) => {
-  console.log('Block deleted:', blockId);
+      const transaction = state.tr.insert(state.selection.to, imageNode);
+      view.dispatch(transaction);
+      editor.view.focus();
+    };
 
-  setBlocks(prev => prev.filter(b => b.id !== blockId));
+    const handleBlockDeleted = (blockId: number) => {
+      console.log('Block deleted:', blockId);
+      setBlocks(prev => prev.filter(b => b.id !== blockId));
+      if (activeEditorRef.current && editorRefs.current[blockId] === activeEditorRef.current) {
+        setActiveEditor(null);
+      }
+      delete editorRefs.current[blockId];
+    };
 
-  if (activeEditor && editorRefs.current[blockId] === activeEditor) {
-    setActiveEditor(null);
-  }
-
-  delete editorRefs.current[blockId];
-});
+    blockHub.connection.on('ReceiveBlock', handleReceiveBlock);
+    blockHub.connection.on('BlockEdited', handleBlockEdited);
+    blockHub.connection.on('ReceiveBlockImage', handleReceiveBlockImage);
+    blockHub.connection.on('BlockDeleted', handleBlockDeleted);
 
     return () => {
-      blockHub.connection.off('ReceiveBlock');
-      blockHub.connection.off('BlockEdited');
-      blockHub.connection.off('ReceiveBlockImage');
-      blockHub.connection.off('BlockDeleted');
+      blockHub.connection.off('ReceiveBlock', handleReceiveBlock);
+      blockHub.connection.off('BlockEdited', handleBlockEdited);
+      blockHub.connection.off('ReceiveBlockImage', handleReceiveBlockImage);
+      blockHub.connection.off('BlockDeleted', handleBlockDeleted);
     };
-  }, [documentId, baseUrl, activeEditor, fallbackEditor]);
+  }, [documentId, baseUrl, fallbackEditor]);
 
   const handleBlockChange = (id: number, json: any) => {
     setBlocks(prev => prev.map(b => (b.id === id ? { ...b, text: JSON.stringify(json) } : b)));
@@ -310,120 +334,7 @@ export const DocumentEditor: React.FC = () => {
       </main>
     </div>
 {/* 🎤 Voice Chat Panel */}
-<aside
-  id="voice-chat-panel"
-  className="fixed bottom-6 right-6 w-[340px] max-h-[80vh] overflow-hidden bg-white/95 backdrop-blur shadow-2xl rounded-2xl border border-gray-200 z-50"
->
-  <div className="px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-violet-50">
-    <div className="flex items-center justify-between">
-      <div>
-        <p className="font-semibold text-sm text-gray-900">Голосовой чат</p>
-        <p className="text-xs text-gray-500">Документ #{documentId}</p>
-      </div>
-      <div className="text-xs text-gray-600 bg-white rounded-full px-2 py-1 border border-gray-200">
-        {participants.length} online
-      </div>
-    </div>
-  </div>
 
-  <div className="p-3 flex flex-col gap-3">
-    <div className="grid grid-cols-2 gap-2">
-      <button
-        onClick={() => toggleMute().catch((err) => console.error(err))}
-        className={`text-xs font-medium px-3 py-2 rounded-lg transition ${
-          isMuted
-            ? 'bg-red-100 text-red-700 border border-red-200'
-            : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-        }`}
-      >
-        {isMuted ? 'Включить микрофон' : 'Выключить микрофон'}
-      </button>
-
-      <button
-        onClick={() => toggleScreenShare().catch((err) => console.error(err))}
-        className={`text-xs font-medium px-3 py-2 rounded-lg transition ${
-          isScreenSharing
-            ? 'bg-violet-100 text-violet-700 border border-violet-200'
-            : 'bg-gray-100 text-gray-700 border border-gray-200'
-        }`}
-      >
-        {isScreenSharing ? 'Остановить экран' : 'Шарить экран'}
-      </button>
-    </div>
-
-    <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
-      <p className="text-xs font-semibold text-gray-700 mb-2">Участники</p>
-      <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto pr-1">
-        {participants.length === 0 && (
-          <div className="text-xs text-gray-400">Пока никого нет</div>
-        )}
-
-        {participants.map((participant) => (
-          <div
-            key={participant.connectionId}
-            className="flex items-center justify-between gap-2 bg-white border border-gray-100 rounded-lg px-2 py-1.5 text-xs"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  participant.isSpeaking ? 'bg-green-500' : 'bg-gray-300'
-                }`}
-              />
-              <span className="truncate text-gray-700">
-                {participant.isSelf ? 'Вы' : participant.username}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1 text-[10px]">
-              {participant.isMuted && (
-                <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-600">mute</span>
-              )}
-              {participant.isScreenSharing && (
-                <span className="px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">screen</span>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-
-    <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
-      <p className="text-xs font-semibold text-gray-700 mb-2">Трансляция экрана</p>
-      <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
-        {screenShares.length === 0 && (
-          <div className="text-xs text-gray-400">Никто не делится экраном</div>
-        )}
-
-        {screenShares.map((share) => (
-          <div key={share.connectionId} className="bg-white border border-gray-100 rounded-lg p-2">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <p className="text-[11px] text-gray-600">
-                {share.isSelf ? 'Ваш экран' : `Экран: ${share.username}`}
-              </p>
-              <button
-                onClick={() => setExpandedShareConnectionId(share.connectionId)}
-                className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600"
-              >
-                Развернуть
-              </button>
-            </div>
-            <video
-              autoPlay
-              playsInline
-              muted={share.isSelf}
-              className="w-full h-28 rounded border border-gray-200 bg-black object-contain"
-              ref={(node) => {
-                if (node && node.srcObject !== share.stream) {
-                  node.srcObject = share.stream;
-                }
-              }}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
-  </div>
-</aside>
 
 {expandedShare && (
   <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-6">

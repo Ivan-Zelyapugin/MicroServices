@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { FaPlus } from 'react-icons/fa6';
 import { FaTrash } from 'react-icons/fa6';
@@ -32,106 +32,18 @@ export const DocumentList: React.FC<DocumentListProps> = ({ onLogout }) => {
   const [tempUserRoles, setTempUserRoles] = useState<{ [userId: number]: DocumentRole }>({});
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
+  const editModalRef = useRef<number | null>(null);
+  const editDocInfoRef = useRef<DocumentDetails | null>(null);
+
   useEffect(() => {
-    startDocumentHub();
-    startParticipantHub();
-    fetchDocuments();
+    editModalRef.current = showEditModal;
+  }, [showEditModal]);
 
-    documentHub.connection.on('DocumentCreated', (doc: Document) => {
-    setDocuments(prev => {
-      const exists = prev.some(d => d.document.id === doc.id);
-      if (exists) return prev;
-      return [...prev, { document: doc, role: 'Creator' }];
-    });
-  });
+  useEffect(() => {
+    editDocInfoRef.current = editDocumentInfo;
+  }, [editDocumentInfo]);
 
-    documentHub.connection.on('DocumentDeleted', (deletedId: number) => {
-    setDocuments(prev => prev.filter(d => d.document.id !== deletedId));
-
-    // Если открыт документ в модалке — закрыть его
-    setEditDocumentInfo(prev => (prev?.id === deletedId ? null : prev));
-  });
-
-    participantHub.connection.on('AddedToDocument', async (userIds: number[], documentId?: number) => {
-    console.log('AddedToDocument received:', { userIds, documentId });
-    // Чтобы все участники видели обновления, просто перезапрашиваем актуальные данные
-    await fetchDocuments();
-
-    // Если открыт модал редактирования — обновим список участников
-    if (showEditModal && editDocumentInfo?.id === documentId) {
-      const updated = await getDocumentDetails(documentId!);
-      setEditDocumentInfo(updated);
-    }
-  });
-
-    participantHub.connection.on('UserRoleChanged', (documentId: number, userId: number, newRole: string) => {
-    console.log('UserRoleChanged received:', { documentId, userId, newRole });
-
-    // Обновляем список документов (чтобы роли пересчитались, например, для текущего пользователя)
-    fetchDocuments();
-
-    // Если открыт документ — обновляем роли участников в деталях
-    setEditDocumentInfo(prev => {
-      if (!prev || prev.id !== documentId) return prev;
-      return {
-        ...prev,
-        users: prev.users.map(u =>
-          u.userId === userId ? { ...u, role: newRole as DocumentRole } : u
-        ),
-      };
-    });
-  });
-
-
-   participantHub.connection.on('UserRemoved', (documentId: number, userId: number) => {
-    console.log('UserRemoved received:', { documentId, userId });
-
-    // Если удалили текущего пользователя — убрать документ из списка
-    if (userId === currentUserId) {
-      setDocuments(prev => prev.filter(d => d.document.id !== documentId));
-      if (showEditModal === documentId) setShowEditModal(null);
-      return;
-    }
-
-    // Иначе просто обновляем детали документа (чтобы остальные видели изменение)
-    fetchDocuments();
-
-    setEditDocumentInfo(prev =>
-      prev && prev.id === documentId
-        ? { ...prev, users: prev.users.filter(u => u.userId !== userId) }
-        : prev
-    );
-  });
-
-
-
-    documentHub.connection.on('DocumentRenamed', (documentId: number, newName: string) => {
-    console.log('DocumentRenamed received:', { documentId, newName });
-
-    setDocuments(prev =>
-      prev.map(d =>
-        d.document.id === documentId
-          ? { ...d, document: { ...d.document, name: newName } }
-          : d
-      )
-    );
-
-    setEditDocumentInfo(prev =>
-      prev && prev.id === documentId ? { ...prev, name: newName } : prev
-    );
-  });
-
-    return () => {
-      documentHub.connection.off('DocumentCreated');
-      documentHub.connection.off('DocumentDeleted');
-      participantHub.connection.off('AddedToDocument');
-      documentHub.connection.off('DocumentRenamed');
-      participantHub.connection.off('UserRoleChanged');
-      participantHub.connection.off('UserRemoved');
-    };
-  }, []);
-
-  const fetchDocuments = async () => {
+  const fetchDocuments = useCallback(async () => {
     try {
       const data = await getMyDocuments();
       setDocuments(data);
@@ -140,7 +52,112 @@ export const DocumentList: React.FC<DocumentListProps> = ({ onLogout }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+      const userId = getUserIdFromToken(token);
+      setCurrentUserId(userId);
+    }
+
+    startDocumentHub();
+    startParticipantHub();
+    fetchDocuments();
+
+    const handleAddedToDocument = async (userIds: number[], documentId?: number) => {
+      console.log('AddedToDocument received:', { userIds, documentId });
+      
+      // Если пришел ID документа, присоединяемся к его группам
+      if (documentId) {
+        sendDocumentMessage('JoinDocument', [documentId]).catch(console.error);
+        sendParticipantMessage('JoinDocument', [documentId]).catch(console.error);
+      }
+
+      await fetchDocuments();
+
+      if (editModalRef.current && editDocInfoRef.current?.id === documentId) {
+        const updated = await getDocumentDetails(documentId!);
+        setEditDocumentInfo(updated);
+      }
+    };
+
+    documentHub.connection.on('DocumentCreated', (doc: Document) => {
+      setDocuments(prev => {
+        const exists = prev.some(d => d.document.id === doc.id);
+        if (exists) return prev;
+        return [...prev, { document: doc, role: 'Creator' }];
+      });
+    });
+
+    documentHub.connection.on('DocumentDeleted', (deletedId: number) => {
+      setDocuments(prev => prev.filter(d => d.document.id !== deletedId));
+      setEditDocumentInfo(prev => (prev?.id === deletedId ? null : prev));
+    });
+
+    documentHub.connection.on('AddedToDocument', handleAddedToDocument);
+    participantHub.connection.on('AddedToDocument', handleAddedToDocument);
+
+    participantHub.connection.on('UserRoleChanged', (documentId: number, userId: number, newRole: string) => {
+      console.log('UserRoleChanged received:', { documentId, userId, newRole });
+      fetchDocuments();
+
+      setEditDocumentInfo(prev => {
+        if (!prev || prev.id !== documentId) return prev;
+        return {
+          ...prev,
+          users: prev.users.map(u =>
+            u.userId === userId ? { ...u, role: newRole as DocumentRole } : u
+          ),
+        };
+      });
+    });
+
+    participantHub.connection.on('UserRemoved', (documentId: number, userId: number) => {
+      console.log('UserRemoved received:', { documentId, userId });
+      
+      const token = localStorage.getItem('accessToken');
+      const myId = token ? getUserIdFromToken(token) : null;
+
+      if (userId === myId) {
+        setDocuments(prev => prev.filter(d => d.document.id !== documentId));
+        if (editModalRef.current === documentId) setShowEditModal(null);
+        return;
+      }
+
+      fetchDocuments();
+
+      setEditDocumentInfo(prev =>
+        prev && prev.id === documentId
+          ? { ...prev, users: prev.users.filter(u => u.userId !== userId) }
+          : prev
+      );
+    });
+
+    documentHub.connection.on('DocumentRenamed', (documentId: number, newName: string) => {
+      console.log('DocumentRenamed received:', { documentId, newName });
+      setDocuments(prev =>
+        prev.map(d =>
+          d.document.id === documentId
+            ? { ...d, document: { ...d.document, name: newName } }
+            : d
+        )
+      );
+      setEditDocumentInfo(prev =>
+        prev && prev.id === documentId ? { ...prev, name: newName } : prev
+      );
+    });
+
+    return () => {
+      documentHub.connection.off('DocumentCreated');
+      documentHub.connection.off('DocumentDeleted');
+      documentHub.connection.off('AddedToDocument', handleAddedToDocument);
+      participantHub.connection.off('AddedToDocument', handleAddedToDocument);
+      documentHub.connection.off('DocumentRenamed');
+      participantHub.connection.off('UserRoleChanged');
+      participantHub.connection.off('UserRemoved');
+    };
+  }, [fetchDocuments]);
 
   function getUserIdFromToken(token: string): number | null {
   try {
