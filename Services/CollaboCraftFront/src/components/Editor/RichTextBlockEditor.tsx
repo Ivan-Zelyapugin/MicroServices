@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { EditorContent, useEditor, Editor } from '@tiptap/react';
 import { commonExtensions } from './editorExtensions';
 import { getEditorAttributes } from './editorUtils'
@@ -22,6 +22,10 @@ export const RichTextBlockEditor: React.FC<Props> = ({
   onEditorReady,
   onSelectionUpdate,
 }) => {
+  // Держим актуальный onImagePaste в ref, т.к. editorProps фиксируется при создании редактора.
+  const onImagePasteRef = useRef(onImagePaste);
+  onImagePasteRef.current = onImagePaste;
+
   const editor = useEditor({
     extensions: commonExtensions,
     editable,
@@ -32,37 +36,35 @@ export const RichTextBlockEditor: React.FC<Props> = ({
     onSelectionUpdate: ({ editor }) => {
       onSelectionUpdate?.(getEditorAttributes(editor));
     },
+    editorProps: {
+      // Обрабатываем вставку картинок сами и возвращаем true, чтобы подавить
+      // нативную вставку ProseMirror (иначе картинка из HTML/data-URL буфера
+      // вставляется повторно поверх той, что приходит с сервера по ReceiveBlockImage).
+      handlePaste: (_view, event) => {
+        const onImagePasteCb = onImagePasteRef.current;
+        if (!onImagePasteCb) return false;
+
+        const items = event.clipboardData?.items;
+        if (!items) return false;
+
+        for (const item of items) {
+          if (item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) {
+              onImagePasteCb(file, () => {});
+              return true;
+            }
+          }
+        }
+        return false;
+      },
+    },
   });
 
 
   useEffect(() => {
     if (editor && onEditorReady) onEditorReady(editor);
   }, [editor, onEditorReady]);
-
-  useEffect(() => {
-    if (!editor || !onImagePaste) return;
-
-    const handlePaste = (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          const file = item.getAsFile();
-          if (file) {
-            e.preventDefault();
-            onImagePaste(file, (url: string) => {
-              editor.chain().focus().setImage({ src: url }).run();
-            });
-          }
-        }
-      }
-    };
-
-    const dom = editor.view.dom;
-    dom.addEventListener('paste', handlePaste);
-    return () => dom.removeEventListener('paste', handlePaste);
-  }, [editor, onImagePaste]);
 
   if (!editor) return <div className="text-red-500">Редактор не инициализирован</div>;
 

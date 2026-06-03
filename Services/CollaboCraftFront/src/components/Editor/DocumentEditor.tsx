@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useDebouncedCallback } from 'use-debounce';
-import { sendBlockMessage, blockHub } from '../../api/signalr';
+import { sendBlockMessage, blockHub, startBlockHub } from '../../api/signalr';
 import { getBlocksByDocument } from '../../api/block';
 import { getMyDocuments, getCurrentUser } from '../../api/document';
 import { RichTextBlockEditor } from './RichTextBlockEditor';
@@ -81,6 +81,45 @@ export const DocumentEditor: React.FC = () => {
       },
     ]);
   }, 200);
+
+  // Явно вступаем в SignalR-группу документа. Соединение блок-хаба поднимается
+  // один раз при логине, поэтому при открытии документа, созданного позже,
+  // оно не входит в группу и не получает realtime-события (блоки/картинки),
+  // пока страницу не перезагрузят. Этот вызов гарантирует членство в группе.
+  useEffect(() => {
+    if (!documentId) return;
+
+    let cancelled = false;
+
+    const joinDocumentGroup = async () => {
+      const conn = blockHub.connection;
+      if (conn.state === 'Disconnected') {
+        await startBlockHub();
+      }
+      for (let i = 0; i < 50 && conn.state !== 'Connected'; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      if (cancelled || conn.state !== 'Connected') return;
+      try {
+        await sendBlockMessage('JoinDocument', [Number(documentId)]);
+      } catch (error) {
+        console.error('Не удалось вступить в группу документа:', error);
+      }
+    };
+
+    joinDocumentGroup();
+
+    const handleReconnected = () => {
+      sendBlockMessage('JoinDocument', [Number(documentId)]).catch(error =>
+        console.error('Не удалось вступить в группу документа после переподключения:', error)
+      );
+    };
+    blockHub.connection.onreconnected(handleReconnected);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId]);
 
   useEffect(() => {
     if (!documentId) return;

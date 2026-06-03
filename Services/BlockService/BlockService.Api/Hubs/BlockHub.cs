@@ -14,6 +14,22 @@ namespace BlockService.Api.Hubs
         IBlockImageService blockImageService
         ) : BaseHub
     {
+        public async Task JoinDocument(int documentId)
+        {
+            try
+            {
+                var documentParticipants = await documentParticipantService.GetDocumentParticipantsByUserId(Id);
+                if (documentParticipants.Any(p => p.DocumentId == documentId))
+                {
+                    await Groups.AddToGroupAsync(Context.ConnectionId, $"Document{documentId}");
+                }
+            }
+            catch (Exception e)
+            {
+                throw new HubException(e.Message);
+            }
+        }
+
         public async Task SendBlock(SendBlockRequest request)
         {
             try
